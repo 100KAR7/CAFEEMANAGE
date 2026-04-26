@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CafeMaster | Phase One Operations Hub</title>
+    <meta
+      name="description"
+      content="CafeMaster phase one project with POS, dashboard, tables, menu, inventory, and SQLite persistence."
+    />
+    <link rel="icon" type="image/svg+xml" href="/assets/cafemaster-logo.svg" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <div class="loading-shell">
+        <img src="/assets/cafemaster-logo.svg" alt="CafeMaster logo" class="loading-logo" />
+        <p>Loading CafeMaster Phase One...</p>
+      </div>
+    </div>
+    <div id="modal-root"></div>
+    <div id="toast-root" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

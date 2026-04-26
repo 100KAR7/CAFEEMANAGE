@@ -1,0 +1,20 @@
+{
+  "name": "cafemaster-phase-one",
+  "version": "1.0.0",
+  "description": "Phase one cafe management system with a Node.js + SQLite backend and responsive operations UI.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node tests/smoke.test.js"
+  },
+  "keywords": [
+    "cafe",
+    "sqlite",
+    "pos",
+    "inventory",
+    "dashboard"
+  ],
+  "author": "",
+  "license": "MIT"
+}
