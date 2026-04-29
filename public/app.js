@@ -145,22 +145,47 @@ function showToast(message, type = "success") {
   window.setTimeout(() => toast.remove(), 3200);
 }
 
+function launchHelpMessage() {
+  return "Open CafeMaster through the Node server. Run npm start, then visit http://localhost:3000.";
+}
+
 async function request(path, options = {}) {
-  const response = await fetch(path, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options
-  });
-  const payload = await response.json().catch(() => ({}));
+  let response;
+  try {
+    response = await fetch(path, {
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        ...(options.headers || {})
+      },
+      ...options
+    });
+  } catch {
+    throw new Error(launchHelpMessage());
+  }
+
+  const contentType = String(response.headers.get("content-type") || "");
+  const payload = contentType.includes("application/json")
+    ? await response.json().catch(() => ({}))
+    : {};
+
   if (response.status === 401 && path !== "/api/auth/session" && path !== "/api/auth/login") {
+    const hadAuthenticatedUser = Boolean(state.auth.user);
     stopLiveSync();
     state.auth.ready = true;
     state.auth.user = null;
     state.auth.expiresAt = null;
-    state.auth.error = "Your session expired. Please log in again.";
+    state.auth.error = hadAuthenticatedUser
+      ? "Login succeeded, but the session was not kept by the browser. Open the app from http://localhost:3000 and try again."
+      : "Your session expired. Please log in again.";
     state.data = null;
     render();
   }
   if (!response.ok) {
+    if (!contentType.includes("application/json") && path.startsWith("/api/")) {
+      throw new Error(launchHelpMessage());
+    }
     throw new Error(payload.error || "Request failed.");
   }
   return payload;
@@ -178,9 +203,18 @@ async function loadBootstrap(showRefreshToast = false) {
 }
 
 async function restoreSession() {
-  const response = await fetch("/api/auth/session", {
-    headers: { "Content-Type": "application/json" }
-  });
+  let response;
+  try {
+    response = await fetch("/api/auth/session", {
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      }
+    });
+  } catch {
+    throw new Error(launchHelpMessage());
+  }
 
   if (response.status === 401) {
     state.auth.ready = true;
@@ -190,7 +224,19 @@ async function restoreSession() {
     return false;
   }
 
-  const payload = await response.json();
+  const contentType = String(response.headers.get("content-type") || "");
+  if (!contentType.includes("application/json")) {
+    throw new Error(launchHelpMessage());
+  }
+
+  const payload = await response.json().catch(() => {
+    throw new Error(launchHelpMessage());
+  });
+
+  if (!response.ok) {
+    throw new Error(payload.error || launchHelpMessage());
+  }
+
   state.auth.ready = true;
   state.auth.user = payload.employee;
   state.auth.expiresAt = payload.expiresAt;
@@ -1550,5 +1596,9 @@ async function boot() {
 }
 
 boot().catch((error) => {
-  renderLoading(error.message);
+  state.auth.ready = true;
+  state.auth.user = null;
+  state.auth.expiresAt = null;
+  state.auth.error = error.message || launchHelpMessage();
+  render();
 });
