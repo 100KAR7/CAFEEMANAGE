@@ -1,6 +1,7 @@
 const appRoot = document.getElementById("app");
 const modalRoot = document.getElementById("modal-root");
 const toastRoot = document.getElementById("toast-root");
+const logoPath = "./assets/cafemaster-logo.svg";
 
 const icons = {
   dashboard:
@@ -124,17 +125,22 @@ function timeOnly(value) {
   }).format(new Date(value));
 }
 
+function pick(value, fallback) {
+  return value === undefined || value === null ? fallback : value;
+}
+
 function isLowStock(item) {
-  return Number(item?.stock ?? 0) <= Number(item?.minStock ?? 0);
+  const record = item || {};
+  return Number(pick(record.stock, 0)) <= Number(pick(record.minStock, 0));
 }
 
 function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+  return String(pick(value, ""))
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function showToast(message, type = "success") {
@@ -247,7 +253,8 @@ async function restoreSession() {
 function startLiveSync() {
   stopLiveSync();
   state.live.timerId = window.setInterval(async () => {
-    const activeTag = document.activeElement?.tagName;
+    const activeElement = document.activeElement;
+    const activeTag = activeElement ? activeElement.tagName : "";
     const isEditing =
       state.modal ||
       activeTag === "INPUT" ||
@@ -272,24 +279,26 @@ function stopLiveSync() {
 }
 
 function getFreeTables() {
-  return (state.data?.tables || []).filter((table) => table.status === "free");
+  return ((state.data && state.data.tables) || []).filter((table) => table.status === "free");
 }
 
 function categories() {
-  const categorySet = new Set((state.data?.menuItems || []).map((item) => item.category));
+  const categorySet = new Set((((state.data && state.data.menuItems) || []).map((item) => item.category)));
   return ["All", ...categorySet];
 }
 
 function filteredPosItems() {
   const category = state.pos.category;
-  return (state.data?.menuItems || []).filter(
+  return (((state.data && state.data.menuItems) || []).filter(
     (item) => item.available && (category === "All" || item.category === category)
-  );
+  ));
 }
 
 function filteredMenuItems() {
   const category = state.filters.menuCategory;
-  return (state.data?.menuItems || []).filter((item) => category === "All" || item.category === category);
+  return (((state.data && state.data.menuItems) || []).filter(
+    (item) => category === "All" || item.category === category
+  ));
 }
 
 function getCartTotals() {
@@ -383,7 +392,7 @@ function statusChip(value) {
 function renderLoading(message = "Loading CafeMaster...") {
   appRoot.innerHTML = `
     <div class="loading-shell">
-      <img src="/assets/cafemaster-logo.svg" alt="CafeMaster logo" class="loading-logo" />
+      <img src="${logoPath}" alt="CafeMaster logo" class="loading-logo" />
       <p>${escapeHtml(message)}</p>
     </div>
   `;
@@ -395,7 +404,7 @@ function renderLogin() {
       <div class="auth-grid">
         <article class="auth-panel">
           <div class="auth-brand">
-            <img src="/assets/cafemaster-logo.svg" alt="CafeMaster logo" class="auth-logo" />
+            <img src="${logoPath}" alt="CafeMaster logo" class="auth-logo" />
             <div>
               <span class="app-kicker">Employee access</span>
               <h1>CafeMaster Operations Suite</h1>
@@ -473,7 +482,7 @@ function render() {
       <aside class="sidebar">
         <div class="brand-card">
           <div class="brand-row">
-            <img class="brand-logo" src="/assets/cafemaster-logo.svg" alt="CafeMaster logo" />
+            <img class="brand-logo" src="${logoPath}" alt="CafeMaster logo" />
             <div>
               <h1>${escapeHtml(state.data.brand.name)}</h1>
               <p>${escapeHtml(state.data.brand.tagline)}</p>
@@ -1088,23 +1097,23 @@ function renderModal() {
           <form data-form="menu-item" class="stack">
             <input type="hidden" name="id" value="${item ? item.id : ""}" />
             <div class="field-grid">
-              <div class="field"><label>Name</label><input name="name" required value="${escapeHtml(item?.name || "")}" /></div>
-              <div class="field"><label>Category</label><input name="category" required value="${escapeHtml(item?.category || "")}" /></div>
+              <div class="field"><label>Name</label><input name="name" required value="${escapeHtml(item ? item.name : "")}" /></div>
+              <div class="field"><label>Category</label><input name="category" required value="${escapeHtml(item ? item.category : "")}" /></div>
             </div>
-            <div class="field"><label>Description</label><textarea name="description">${escapeHtml(item?.description || "")}</textarea></div>
+            <div class="field"><label>Description</label><textarea name="description">${escapeHtml(item ? item.description : "")}</textarea></div>
             <div class="field-grid">
-              <div class="field"><label>Price</label><input name="price" type="number" min="1" required value="${escapeHtml(item?.price || 0)}" /></div>
-              <div class="field"><label>Cost</label><input name="cost" type="number" min="0" required value="${escapeHtml(item?.cost || 0)}" /></div>
+              <div class="field"><label>Price</label><input name="price" type="number" min="1" required value="${escapeHtml(item ? item.price : 0)}" /></div>
+              <div class="field"><label>Cost</label><input name="cost" type="number" min="0" required value="${escapeHtml(item ? item.cost : 0)}" /></div>
             </div>
             <div class="field-grid">
-              <div class="field"><label>Stock</label><input name="stock" type="number" min="0" required value="${escapeHtml(item?.stock || 0)}" /></div>
-              <div class="field"><label>Prep time (min)</label><input name="prepTime" type="number" min="1" required value="${escapeHtml(item?.prepTime || 5)}" /></div>
+              <div class="field"><label>Stock</label><input name="stock" type="number" min="0" required value="${escapeHtml(item ? item.stock : 0)}" /></div>
+              <div class="field"><label>Prep time (min)</label><input name="prepTime" type="number" min="1" required value="${escapeHtml(item ? item.prepTime : 5)}" /></div>
             </div>
             <div class="field">
               <label>Minimum stock threshold</label>
-              <input name="minStock" type="number" min="0" required value="${escapeHtml(item?.minStock ?? 5)}" />
+              <input name="minStock" type="number" min="0" required value="${escapeHtml(item ? pick(item.minStock, 5) : 5)}" />
             </div>
-            <label class="pill"><input type="checkbox" name="available" ${item?.available ?? true ? "checked" : ""} /> Available for sale</label>
+            <label class="pill"><input type="checkbox" name="available" ${item ? (pick(item.available, true) ? "checked" : "") : "checked"} /> Available for sale</label>
             <button class="btn btn-primary" type="submit">${icons.plus} Save item</button>
           </form>
         </div>
@@ -1233,7 +1242,14 @@ async function loginEmployee(email, password) {
   state.auth.user = payload.employee;
   state.auth.expiresAt = payload.expiresAt;
   state.auth.error = "";
-  await loadBootstrap();
+  try {
+    await loadBootstrap();
+  } catch (error) {
+    state.auth.user = null;
+    state.auth.expiresAt = null;
+    state.data = null;
+    throw error;
+  }
   startLiveSync();
   showToast(`Signed in as ${payload.employee.fullName}.`);
 }
@@ -1321,7 +1337,8 @@ async function toggleMenuItem(id, available) {
 }
 
 function printReceipt() {
-  const receiptHtml = document.getElementById("receipt-content")?.innerHTML;
+  const receiptElement = document.getElementById("receipt-content");
+  const receiptHtml = receiptElement ? receiptElement.innerHTML : "";
   if (!receiptHtml) {
     return;
   }

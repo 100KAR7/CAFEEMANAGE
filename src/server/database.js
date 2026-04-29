@@ -100,11 +100,43 @@ function isLowStockMenuItem(item) {
   return Boolean(item?.available) && Number(item?.stock) <= Number(item?.minStock);
 }
 
+function getTableColumns(db, tableName) {
+  return new Set(db.prepare(`PRAGMA table_info(${tableName})`).all().map((column) => column.name));
+}
+
+function addColumnIfMissing(db, tableName, columnName, definition) {
+  const columns = getTableColumns(db, tableName);
+  if (!columns.has(columnName)) {
+    db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+  }
+}
+
+function applySchemaMigrations(db) {
+  addColumnIfMissing(db, "menu_items", "min_stock", "INTEGER NOT NULL DEFAULT 5");
+  addColumnIfMissing(db, "menu_items", "allergens", "TEXT DEFAULT ''");
+  addColumnIfMissing(db, "menu_items", "image_url", "TEXT DEFAULT ''");
+
+  addColumnIfMissing(db, "customers", "email", "TEXT");
+  addColumnIfMissing(db, "customers", "total_spent", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "customers", "created_at", "TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.000Z'");
+  addColumnIfMissing(db, "customers", "updated_at", "TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.000Z'");
+
+  addColumnIfMissing(db, "employees", "hourly_rate", "REAL DEFAULT 0");
+
+  addColumnIfMissing(db, "orders", "employee_id", "INTEGER");
+
+  addColumnIfMissing(db, "order_items", "special_instructions", "TEXT DEFAULT ''");
+
+  addColumnIfMissing(db, "inventory_movements", "employee_id", "INTEGER");
+  addColumnIfMissing(db, "inventory_movements", "reference_id", "INTEGER");
+}
+
 function createStore(dbFilePath) {
   fs.mkdirSync(path.dirname(dbFilePath), { recursive: true });
   const db = new DatabaseSync(dbFilePath);
   const schema = fs.readFileSync(path.resolve(__dirname, "../../database/schema.sql"), "utf8");
   db.exec(schema);
+  applySchemaMigrations(db);
   seedDatabase(db);
 
   const run = (sql, ...params) => db.prepare(sql).run(...params);
