@@ -202,6 +202,57 @@ const DEFAULT_CUSTOMERS = [
   { name: "Rohan Das", phone: "9876500003", visits: 3, loyaltyPoints: 60 }
 ];
 
+const DEFAULT_EMPLOYEES = [
+  {
+    fullName: "Barista Kumar",
+    email: "barista@cafemaster.local",
+    password: "Barista@123",
+    role: "barista",
+    hourlyRate: 15.50
+  },
+  {
+    fullName: "Waiter Singh",
+    email: "waiter@cafemaster.local",
+    password: "Waiter@123",
+    role: "waiter",
+    hourlyRate: 12.00
+  },
+  {
+    fullName: "Chef Patel",
+    email: "chef@cafemaster.local",
+    password: "Chef@123",
+    role: "chef",
+    hourlyRate: 18.00
+  }
+];
+
+const DEFAULT_SUPPLIERS = [
+  {
+    name: "Fresh Farms Co.",
+    contactName: "Rajesh Kumar",
+    phone: "9876500101",
+    email: "rajesh@freshfarms.com",
+    address: "123 Agriculture Road, Delhi",
+    paymentTerms: "Net 15"
+  },
+  {
+    name: "Premium Beverages Ltd.",
+    contactName: "Priya Sharma",
+    phone: "9876500102",
+    email: "priya@premiumbev.com",
+    address: "456 Industrial Area, Mumbai",
+    paymentTerms: "Net 30"
+  },
+  {
+    name: "Bakery Supplies Inc.",
+    contactName: "Amit Gupta",
+    phone: "9876500103",
+    email: "amit@bakeryinc.com",
+    address: "789 Commercial Street, Bangalore",
+    paymentTerms: "Net 21"
+  }
+];
+
 const SAMPLE_ORDERS = [
   {
     orderType: "dine-in",
@@ -252,5 +303,7 @@ module.exports = {
   DEFAULT_TABLES,
   DEFAULT_MENU_ITEMS,
   DEFAULT_CUSTOMERS,
+  DEFAULT_EMPLOYEES,
+  DEFAULT_SUPPLIERS,
   SAMPLE_ORDERS
 };

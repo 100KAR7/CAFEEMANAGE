@@ -124,6 +124,10 @@ function timeOnly(value) {
   }).format(new Date(value));
 }
 
+function isLowStock(item) {
+  return Number(item?.stock ?? 0) <= Number(item?.minStock ?? 0);
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -255,6 +259,10 @@ function getCartTotals() {
 }
 
 function upsertCartItem(menuItem) {
+  if (menuItem.stock <= 0) {
+    showToast(`${menuItem.name} is sold out right now.`, "error");
+    return;
+  }
   const existing = state.cart.find((item) => item.id === menuItem.id);
   if (existing) {
     if (existing.qty >= menuItem.stock) {
@@ -293,6 +301,23 @@ function adjustCartItem(id, delta) {
 function clearCart() {
   state.cart = [];
   render();
+}
+
+function syncCartTotals() {
+  const totals = getCartTotals();
+  const values = {
+    subtotal: currentCurrency(totals.subtotal),
+    discount: currentCurrency(totals.discount),
+    tax: currentCurrency(totals.tax),
+    total: currentCurrency(totals.total)
+  };
+
+  Object.entries(values).forEach(([key, value]) => {
+    const element = document.querySelector(`[data-cart-total="${key}"]`);
+    if (element) {
+      element.textContent = value;
+    }
+  });
 }
 
 function openModal(modal) {
@@ -676,12 +701,13 @@ function renderPos() {
         </div>
         <div class="menu-grid" style="margin-top:1rem">
           ${filteredPosItems()
-            .map(
-              (item) => `
+            .map((item) => {
+              const soldOut = item.stock <= 0;
+              return `
                 <article class="menu-card" data-pos-card data-search="${escapeHtml(`${item.name} ${item.category} ${item.description}`.toLowerCase())}">
                   <div class="row">
                     <span class="tiny-chip">${escapeHtml(item.category)}</span>
-                    <span class="tiny-chip">${item.stock} in stock</span>
+                    <span class="tiny-chip">${soldOut ? "Sold out" : `${item.stock} in stock`}</span>
                   </div>
                   <strong>${escapeHtml(item.name)}</strong>
                   <p>${escapeHtml(item.description)}</p>
@@ -689,10 +715,12 @@ function renderPos() {
                     <span class="price-line">${currentCurrency(item.price)}</span>
                     <span class="muted-label">${item.prepTime} min</span>
                   </div>
-                  <button class="btn btn-primary btn-sm" data-action="cart-add" data-id="${item.id}">${icons.plus} Add</button>
+                  <button class="btn btn-primary btn-sm" data-action="cart-add" data-id="${item.id}" ${soldOut ? "disabled" : ""}>
+                    ${soldOut ? "Sold out" : `${icons.plus} Add`}
+                  </button>
                 </article>
-              `
-            )
+              `;
+            })
             .join("")}
         </div>
       </article>
@@ -784,10 +812,10 @@ function renderPos() {
             }
           </div>
           <div class="cart-total">
-            <div class="summary-row"><span class="muted-label">Subtotal</span><strong>${currentCurrency(totals.subtotal)}</strong></div>
-            <div class="summary-row"><span class="muted-label">Discount</span><strong>${currentCurrency(totals.discount)}</strong></div>
-            <div class="summary-row"><span class="muted-label">Tax</span><strong>${currentCurrency(totals.tax)}</strong></div>
-            <div class="summary-row" style="margin-top:0.55rem"><span>Total</span><strong>${currentCurrency(totals.total)}</strong></div>
+            <div class="summary-row"><span class="muted-label">Subtotal</span><strong data-cart-total="subtotal">${currentCurrency(totals.subtotal)}</strong></div>
+            <div class="summary-row"><span class="muted-label">Discount</span><strong data-cart-total="discount">${currentCurrency(totals.discount)}</strong></div>
+            <div class="summary-row"><span class="muted-label">Tax</span><strong data-cart-total="tax">${currentCurrency(totals.tax)}</strong></div>
+            <div class="summary-row" style="margin-top:0.55rem"><span>Total</span><strong data-cart-total="total">${currentCurrency(totals.total)}</strong></div>
           </div>
           <button class="btn btn-primary" type="submit">${icons.plus} Save Order To SQLite</button>
         </form>
@@ -870,7 +898,7 @@ function renderMenu() {
                 </div>
                 <span>${escapeHtml(item.category)}</span>
                 <span>${currentCurrency(item.price)}</span>
-                <span>${item.stock} • ${item.available ? "Live" : "Hidden"}</span>
+                <span>${item.stock} in stock • Min ${item.minStock} • ${item.available ? "Live" : "Hidden"}</span>
                 <div class="toolbar">
                   <button class="btn btn-secondary btn-sm" data-action="edit-menu-item" data-id="${item.id}">Edit</button>
                   <button class="btn btn-secondary btn-sm" data-action="toggle-menu-item" data-id="${item.id}" data-available="${item.available ? "0" : "1"}">${item.available ? "Hide" : "Show"}</button>
@@ -909,9 +937,11 @@ function renderInventory() {
                 <div class="row">
                   <div>
                     <strong>${escapeHtml(item.name)}</strong>
-                    <p>${escapeHtml(item.category)} • Cost ${currentCurrency(item.cost)}</p>
+                    <p>${escapeHtml(item.category)} • Cost ${currentCurrency(item.cost)} • Reorder at ${item.minStock}</p>
                   </div>
-                  <span class="status-chip ${item.stock <= 12 ? "pending" : "completed"}">${item.stock} units</span>
+                  <span class="status-chip ${isLowStock(item) ? "pending" : "completed"}">
+                    ${isLowStock(item) ? `Low: ${item.stock} units` : `${item.stock} units`}
+                  </span>
                 </div>
                 <div class="toolbar">
                   <button class="btn btn-secondary btn-sm" data-action="open-restock-modal" data-id="${item.id}">Restock</button>
@@ -953,6 +983,7 @@ function renderOrders() {
                   </div>
                 </div>
                 <p>${escapeHtml(order.customerName || "Walk-in Guest")} • ${escapeHtml(order.tableName || order.orderType)} • ${shortDate(order.createdAt)}</p>
+                <p>${escapeHtml(order.employeeName || "Staff member not recorded")} • ${escapeHtml(order.paymentMethod || order.paymentStatus)}</p>
                 <p>${escapeHtml(order.items.map((item) => `${item.qty}x ${item.name}`).join(", "))}</p>
                 <div class="row">
                   <strong>${currentCurrency(order.total)}</strong>
@@ -1022,6 +1053,10 @@ function renderModal() {
             <div class="field-grid">
               <div class="field"><label>Stock</label><input name="stock" type="number" min="0" required value="${escapeHtml(item?.stock || 0)}" /></div>
               <div class="field"><label>Prep time (min)</label><input name="prepTime" type="number" min="1" required value="${escapeHtml(item?.prepTime || 5)}" /></div>
+            </div>
+            <div class="field">
+              <label>Minimum stock threshold</label>
+              <input name="minStock" type="number" min="0" required value="${escapeHtml(item?.minStock ?? 5)}" />
             </div>
             <label class="pill"><input type="checkbox" name="available" ${item?.available ?? true ? "checked" : ""} /> Available for sale</label>
             <button class="btn btn-primary" type="submit">${icons.plus} Save item</button>
@@ -1380,6 +1415,9 @@ document.addEventListener("input", (event) => {
   if (event.target.matches("[data-pos-field]")) {
     state.pos[event.target.dataset.posField] = event.target.value;
   }
+  if (event.target.matches("[data-pos-field='discount']")) {
+    syncCartTotals();
+  }
   if (event.target.matches('[data-filter="pos-search"]')) {
     state.pos.search = event.target.value;
     applyPosFilters();
@@ -1446,6 +1484,7 @@ document.addEventListener("submit", async (event) => {
         price: Number(formData.get("price")),
         cost: Number(formData.get("cost")),
         stock: Number(formData.get("stock")),
+        minStock: Number(formData.get("minStock")),
         prepTime: Number(formData.get("prepTime")),
         available: formData.get("available") === "on"
       };

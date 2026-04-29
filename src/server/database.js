@@ -7,18 +7,28 @@ const {
   DEFAULT_TABLES,
   DEFAULT_MENU_ITEMS,
   DEFAULT_CUSTOMERS,
+  DEFAULT_EMPLOYEES,
+  DEFAULT_SUPPLIERS,
   SAMPLE_ORDERS
 } = require("./data");
 
 const VALID_TABLE_STATUSES = new Set(["free", "occupied", "reserved", "cleaning"]);
 const VALID_ORDER_STATUSES = new Set(["placed", "preparing", "served", "completed", "cancelled"]);
 const VALID_PAYMENT_STATUSES = new Set(["pending", "paid", "refunded"]);
+const ORDER_STATUS_TRANSITIONS = {
+  placed: new Set(["preparing", "served", "completed", "cancelled"]),
+  preparing: new Set(["served", "completed", "cancelled"]),
+  served: new Set(["completed", "cancelled"]),
+  completed: new Set(),
+  cancelled: new Set()
+};
 const SESSION_TTL_HOURS = 12;
 const DEFAULT_EMPLOYEE = {
   fullName: "CafeMaster Admin",
   email: "admin@cafemaster.local",
   password: "Cafe@12345",
-  role: "manager"
+  role: "manager",
+  hourlyRate: 25.00
 };
 
 function nowIso() {
@@ -78,9 +88,16 @@ function validateMenuItem(item) {
   if (!Number.isFinite(item.stock) || item.stock < 0) {
     throw createHttpError(400, "Stock cannot be negative.");
   }
+  if (!Number.isFinite(item.minStock) || item.minStock < 0) {
+    throw createHttpError(400, "Minimum stock cannot be negative.");
+  }
   if (!Number.isFinite(item.prepTime) || item.prepTime <= 0) {
     throw createHttpError(400, "Prep time must be greater than zero.");
   }
+}
+
+function isLowStockMenuItem(item) {
+  return Boolean(item?.available) && Number(item?.stock) <= Number(item?.minStock);
 }
 
 function createStore(dbFilePath) {
@@ -102,8 +119,11 @@ function createStore(dbFilePath) {
     price: row.price,
     cost: row.cost,
     stock: row.stock,
+    minStock: row.min_stock,
     available: Boolean(row.available),
     prepTime: row.prep_time,
+    allergens: row.allergens,
+    imageUrl: row.image_url,
     updatedAt: row.updated_at
   });
 
@@ -139,7 +159,7 @@ function createStore(dbFilePath) {
 
   function listMenuItems() {
     return all(
-      `SELECT id, name, category, description, price, cost, stock, available, prep_time, updated_at
+      `SELECT id, name, category, description, price, cost, stock, min_stock, available, prep_time, allergens, image_url, updated_at
        FROM menu_items
        ORDER BY category, name`
     ).map(normalizeMenuRow);
@@ -147,7 +167,7 @@ function createStore(dbFilePath) {
 
   function getMenuItem(id) {
     const row = get(
-      `SELECT id, name, category, description, price, cost, stock, available, prep_time, updated_at
+      `SELECT id, name, category, description, price, cost, stock, min_stock, available, prep_time, allergens, image_url, updated_at
        FROM menu_items
        WHERE id = ?`,
       Number(id)
@@ -320,7 +340,7 @@ function createStore(dbFilePath) {
   function mapOrderItems() {
     const grouped = new Map();
     for (const row of all(
-      `SELECT id, order_id, menu_item_id, item_name, qty, unit_price, line_total
+      `SELECT id, order_id, menu_item_id, item_name, qty, unit_price, line_total, special_instructions
        FROM order_items
        ORDER BY id`
     )) {
@@ -331,7 +351,8 @@ function createStore(dbFilePath) {
         name: row.item_name,
         qty: row.qty,
         unitPrice: row.unit_price,
-        lineTotal: row.line_total
+        lineTotal: row.line_total,
+        specialInstructions: row.special_instructions
       });
       grouped.set(row.order_id, entry);
     }
@@ -347,6 +368,8 @@ function createStore(dbFilePath) {
       o.customer_id,
       c.name AS customer_name,
       c.phone AS customer_phone,
+      o.employee_id,
+      e.full_name AS employee_name,
       o.order_type,
       o.status,
       o.payment_status,
@@ -360,7 +383,8 @@ function createStore(dbFilePath) {
       o.updated_at
     FROM orders o
     LEFT JOIN tables t ON t.id = o.table_id
-    LEFT JOIN customers c ON c.id = o.customer_id`;
+    LEFT JOIN customers c ON c.id = o.customer_id
+    LEFT JOIN employees e ON e.id = o.employee_id`;
   }
 
   function normalizeOrderRow(row, items = []) {
@@ -372,6 +396,8 @@ function createStore(dbFilePath) {
       customerId: row.customer_id,
       customerName: row.customer_name,
       customerPhone: row.customer_phone,
+      employeeId: row.employee_id,
+      employeeName: row.employee_name,
       orderType: row.order_type,
       status: row.status,
       paymentStatus: row.payment_status,
@@ -400,7 +426,7 @@ function createStore(dbFilePath) {
       return null;
     }
     const items = all(
-      `SELECT id, order_id, menu_item_id, item_name, qty, unit_price, line_total
+      `SELECT id, order_id, menu_item_id, item_name, qty, unit_price, line_total, special_instructions
        FROM order_items
        WHERE order_id = ?
        ORDER BY id`,
@@ -411,7 +437,8 @@ function createStore(dbFilePath) {
       name: item.item_name,
       qty: item.qty,
       unitPrice: item.unit_price,
-      lineTotal: item.line_total
+      lineTotal: item.line_total,
+      specialInstructions: item.special_instructions
     }));
     return normalizeOrderRow(row, items);
   }
@@ -424,7 +451,7 @@ function createStore(dbFilePath) {
     const today = new Date().toISOString().slice(0, 10);
     const todaysOrders = orders.filter((order) => order.createdAt.slice(0, 10) === today);
     const revenueToday = todaysOrders.reduce((sum, order) => sum + order.total, 0);
-    const lowStockItems = menuItems.filter((item) => item.stock <= 12);
+    const lowStockItems = menuItems.filter(isLowStockMenuItem);
     const popularItems = new Map();
     const paymentBreakdown = new Map();
     const categoryMix = new Map();
@@ -499,11 +526,13 @@ function createStore(dbFilePath) {
       if (existing) {
         run(
           `UPDATE customers
-           SET name = ?, visits = ?, loyalty_points = ?, last_visit = ?
+           SET name = ?, visits = ?, loyalty_points = ?, total_spent = total_spent + ?, last_visit = ?, updated_at = ?
            WHERE id = ?`,
           name || existing.name,
           existing.visits + 1,
           existing.loyalty_points + points,
+          total,
+          timestamp,
           timestamp,
           existing.id
         );
@@ -511,12 +540,15 @@ function createStore(dbFilePath) {
       }
     }
     run(
-      `INSERT INTO customers (name, phone, visits, loyalty_points, last_visit)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO customers (name, phone, visits, loyalty_points, total_spent, last_visit, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       name || "Walk-in Guest",
       phone || null,
       1,
       points,
+      total,
+      timestamp,
+      timestamp,
       timestamp
     );
     return get("SELECT last_insert_rowid() AS id").id;
@@ -535,22 +567,28 @@ function createStore(dbFilePath) {
       price: Number(payload.price || 0),
       cost: Number(payload.cost || 0),
       stock: Number(payload.stock || 0),
+      minStock: Number(payload.minStock || 5),
       available: payload.available === undefined ? true : Boolean(payload.available),
-      prepTime: Number(payload.prepTime || 5)
+      prepTime: Number(payload.prepTime || 5),
+      allergens: String(payload.allergens || "").trim(),
+      imageUrl: String(payload.imageUrl || "").trim()
     };
     validateMenuItem(record);
     run(
       `INSERT INTO menu_items
-       (name, category, description, price, cost, stock, available, prep_time, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (name, category, description, price, cost, stock, min_stock, available, prep_time, allergens, image_url, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       record.name,
       record.category,
       record.description,
       record.price,
       record.cost,
       record.stock,
+      record.minStock,
       record.available ? 1 : 0,
       record.prepTime,
+      record.allergens,
+      record.imageUrl,
       nowIso()
     );
     return getMenuItem(get("SELECT last_insert_rowid() AS id").id);
@@ -568,13 +606,16 @@ function createStore(dbFilePath) {
       price: Number(payload.price ?? existing.price),
       cost: Number(payload.cost ?? existing.cost),
       stock: Number(payload.stock ?? existing.stock),
+      minStock: Number(payload.minStock ?? existing.minStock),
       available: payload.available === undefined ? existing.available : Boolean(payload.available),
-      prepTime: Number(payload.prepTime ?? existing.prepTime)
+      prepTime: Number(payload.prepTime ?? existing.prepTime),
+      allergens: String(payload.allergens ?? existing.allergens).trim(),
+      imageUrl: String(payload.imageUrl ?? existing.imageUrl).trim()
     };
     validateMenuItem(record);
     run(
       `UPDATE menu_items
-       SET name = ?, category = ?, description = ?, price = ?, cost = ?, stock = ?, available = ?, prep_time = ?, updated_at = ?
+       SET name = ?, category = ?, description = ?, price = ?, cost = ?, stock = ?, min_stock = ?, available = ?, prep_time = ?, allergens = ?, image_url = ?, updated_at = ?
        WHERE id = ?`,
       record.name,
       record.category,
@@ -582,15 +623,18 @@ function createStore(dbFilePath) {
       record.price,
       record.cost,
       record.stock,
+      record.minStock,
       record.available ? 1 : 0,
       record.prepTime,
+      record.allergens,
+      record.imageUrl,
       nowIso(),
       Number(id)
     );
     return getMenuItem(id);
   }
 
-  function restockItem(id, quantity, reason = "Manual restock") {
+  function restockItem(id, quantity, reason = "Manual restock", employeeId = null) {
     const item = getMenuItem(id);
     const amount = Number(quantity);
     if (!item) {
@@ -602,9 +646,10 @@ function createStore(dbFilePath) {
     const timestamp = nowIso();
     run(`UPDATE menu_items SET stock = stock + ?, updated_at = ? WHERE id = ?`, amount, timestamp, Number(id));
     run(
-      `INSERT INTO inventory_movements (menu_item_id, change_qty, reason, created_at)
-       VALUES (?, ?, ?, ?)`,
+      `INSERT INTO inventory_movements (menu_item_id, employee_id, change_qty, reason, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
       Number(id),
+      employeeId ? Number(employeeId) : null,
       amount,
       reason,
       timestamp
@@ -649,7 +694,7 @@ function createStore(dbFilePath) {
     return getTable(id);
   }
 
-  function createOrder(payload) {
+  function createOrder(payload, employeeId = null) {
     const items = Array.isArray(payload.items) ? payload.items : [];
     if (!items.length) {
       throw createHttpError(400, "Add at least one item to create an order.");
@@ -718,11 +763,12 @@ function createStore(dbFilePath) {
       const customerId = upsertCustomer(payload.customer, total);
       run(
         `INSERT INTO orders
-         (order_number, table_id, customer_id, order_type, status, payment_status, payment_method, notes, subtotal, tax, discount, total, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (order_number, table_id, customer_id, employee_id, order_type, status, payment_status, payment_method, notes, subtotal, tax, discount, total, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         orderNumber,
         tableId,
         customerId,
+        employeeId ? Number(employeeId) : null,
         orderType,
         status,
         paymentStatus,
@@ -739,20 +785,22 @@ function createStore(dbFilePath) {
 
       for (const item of resolvedItems) {
         run(
-          `INSERT INTO order_items (order_id, menu_item_id, item_name, qty, unit_price, line_total)
-           VALUES (?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO order_items (order_id, menu_item_id, item_name, qty, unit_price, line_total, special_instructions)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
           orderId,
           item.menuItemId,
           item.name,
           item.qty,
           item.unitPrice,
-          item.lineTotal
+          item.lineTotal,
+          "" // special_instructions
         );
         run(`UPDATE menu_items SET stock = stock - ?, updated_at = ? WHERE id = ?`, item.qty, timestamp, item.menuItemId);
         run(
-          `INSERT INTO inventory_movements (menu_item_id, change_qty, reason, created_at)
-           VALUES (?, ?, ?, ?)`,
+          `INSERT INTO inventory_movements (menu_item_id, employee_id, change_qty, reason, created_at)
+           VALUES (?, ?, ?, ?, ?)`,
           item.menuItemId,
+          employeeId ? Number(employeeId) : null,
           -item.qty,
           `Sale ${orderNumber}`,
           timestamp
@@ -780,7 +828,7 @@ function createStore(dbFilePath) {
     }
   }
 
-  function updateOrderStatus(id, payload) {
+  function updateOrderStatus(id, payload, employeeId = null) {
     const order = getOrder(id);
     if (!order) {
       throw createHttpError(404, "Order not found.");
@@ -793,6 +841,9 @@ function createStore(dbFilePath) {
     }
     if (!VALID_PAYMENT_STATUSES.has(paymentStatus)) {
       throw createHttpError(400, "Invalid payment status.");
+    }
+    if (status !== order.status && !ORDER_STATUS_TRANSITIONS[order.status]?.has(status)) {
+      throw createHttpError(409, `Orders cannot move from ${order.status} to ${status}.`);
     }
 
     const timestamp = nowIso();
@@ -825,9 +876,10 @@ function createStore(dbFilePath) {
         for (const item of order.items) {
           run(`UPDATE menu_items SET stock = stock + ?, updated_at = ? WHERE id = ?`, item.qty, timestamp, item.menuItemId);
           run(
-            `INSERT INTO inventory_movements (menu_item_id, change_qty, reason, created_at)
-             VALUES (?, ?, ?, ?)`,
+            `INSERT INTO inventory_movements (menu_item_id, employee_id, change_qty, reason, created_at)
+             VALUES (?, ?, ?, ?, ?)`,
             item.menuItemId,
+            employeeId ? Number(employeeId) : null,
             item.qty,
             `Order ${order.orderNumber} cancelled`,
             timestamp
@@ -841,6 +893,629 @@ function createStore(dbFilePath) {
       db.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  // Industry-level features
+
+  // Employee Management
+  function listEmployees() {
+    return all(
+      `SELECT id, full_name, email, role, hourly_rate, is_active, last_login_at, created_at, updated_at
+       FROM employees
+       ORDER BY full_name`
+    ).map((row) => ({
+      id: row.id,
+      fullName: row.full_name,
+      email: row.email,
+      role: row.role,
+      hourlyRate: row.hourly_rate,
+      isActive: Boolean(row.is_active),
+      lastLoginAt: row.last_login_at,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }));
+  }
+
+  function createEmployee(payload) {
+    const record = {
+      fullName: String(payload.fullName || "").trim(),
+      email: normalizeEmail(payload.email),
+      role: String(payload.role || "staff").trim(),
+      hourlyRate: Number(payload.hourlyRate || 0),
+      password: String(payload.password || "")
+    };
+
+    if (!record.fullName || !record.email) {
+      throw createHttpError(400, "Full name and email are required.");
+    }
+    if (!record.password) {
+      throw createHttpError(400, "Password is required.");
+    }
+
+    run(
+      `INSERT INTO employees (full_name, email, role, password_hash, hourly_rate, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      record.fullName,
+      record.email,
+      record.role,
+      hashPassword(record.password),
+      record.hourlyRate,
+      1,
+      nowIso(),
+      nowIso()
+    );
+
+    return getEmployeeById(get("SELECT last_insert_rowid() AS id").id);
+  }
+
+  function updateEmployee(id, payload) {
+    const existing = getEmployeeById(id);
+    if (!existing) {
+      throw createHttpError(404, "Employee not found.");
+    }
+
+    const record = {
+      fullName: String(payload.fullName ?? existing.fullName).trim(),
+      email: payload.email !== undefined ? normalizeEmail(payload.email) : existing.email,
+      role: String(payload.role ?? existing.role).trim(),
+      hourlyRate: Number(payload.hourlyRate ?? existing.hourlyRate),
+      isActive: payload.isActive !== undefined ? Boolean(payload.isActive) : existing.isActive
+    };
+
+    if (!record.fullName || !record.email) {
+      throw createHttpError(400, "Full name and email are required.");
+    }
+
+    run(
+      `UPDATE employees
+       SET full_name = ?, email = ?, role = ?, hourly_rate = ?, is_active = ?, updated_at = ?
+       WHERE id = ?`,
+      record.fullName,
+      record.email,
+      record.role,
+      record.hourlyRate,
+      record.isActive ? 1 : 0,
+      nowIso(),
+      Number(id)
+    );
+
+    return getEmployeeById(id);
+  }
+
+  function createEmployeeShift(payload) {
+    const record = {
+      employeeId: Number(payload.employeeId),
+      startTime: String(payload.startTime || "").trim(),
+      endTime: String(payload.endTime || "").trim(),
+      role: String(payload.role || "").trim(),
+      notes: String(payload.notes || "").trim()
+    };
+
+    if (!record.employeeId || !record.startTime || !record.endTime) {
+      throw createHttpError(400, "Employee ID, start time, and end time are required.");
+    }
+
+    const employee = getEmployeeById(record.employeeId);
+    if (!employee) {
+      throw createHttpError(404, "Employee not found.");
+    }
+
+    run(
+      `INSERT INTO employee_shifts (employee_id, start_time, end_time, role, notes, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      record.employeeId,
+      record.startTime,
+      record.endTime,
+      record.role,
+      record.notes,
+      nowIso()
+    );
+
+    return get("SELECT last_insert_rowid() AS id").id;
+  }
+
+  function listEmployeeShifts(employeeId = null, dateFrom = null, dateTo = null) {
+    let sql = `SELECT s.id, s.employee_id, s.start_time, s.end_time, s.role, s.notes, s.created_at,
+                      e.full_name, e.email
+               FROM employee_shifts s
+               INNER JOIN employees e ON e.id = s.employee_id`;
+    const params = [];
+    const filters = [];
+
+    if (employeeId) {
+      filters.push(`s.employee_id = ?`);
+      params.push(Number(employeeId));
+    }
+
+    if (dateFrom) {
+      filters.push(`s.start_time >= ?`);
+      params.push(dateFrom);
+    }
+
+    if (dateTo) {
+      filters.push(`s.start_time <= ?`);
+      params.push(dateTo);
+    }
+
+    if (filters.length) {
+      sql += ` WHERE ${filters.join(" AND ")}`;
+    }
+
+    sql += ` ORDER BY s.start_time DESC`;
+
+    return all(sql, ...params).map((row) => ({
+      id: row.id,
+      employeeId: row.employee_id,
+      employeeName: row.full_name,
+      employeeEmail: row.email,
+      startTime: row.start_time,
+      endTime: row.end_time,
+      role: row.role,
+      notes: row.notes,
+      createdAt: row.created_at
+    }));
+  }
+
+  // Reservations
+  function createReservation(payload) {
+    const record = {
+      customerName: String(payload.customerName || "").trim(),
+      customerPhone: String(payload.customerPhone || "").trim(),
+      customerEmail: String(payload.customerEmail || "").trim(),
+      tableId: Number(payload.tableId),
+      partySize: Number(payload.partySize || 1),
+      reservationTime: String(payload.reservationTime || "").trim(),
+      durationMinutes: Number(payload.durationMinutes || 120),
+      status: String(payload.status || "confirmed").trim(),
+      notes: String(payload.notes || "").trim()
+    };
+
+    if (!record.customerName || !record.tableId || !record.reservationTime) {
+      throw createHttpError(400, "Customer name, table ID, and reservation time are required.");
+    }
+
+    const table = getTable(record.tableId);
+    if (!table) {
+      throw createHttpError(404, "Table not found.");
+    }
+
+    if (record.partySize > table.seats) {
+      throw createHttpError(400, `Party size (${record.partySize}) exceeds table capacity (${table.seats}).`);
+    }
+
+    run(
+      `INSERT INTO reservations (customer_name, customer_phone, customer_email, table_id, party_size, reservation_time, duration_minutes, status, notes, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      record.customerName,
+      record.customerPhone,
+      record.customerEmail,
+      record.tableId,
+      record.partySize,
+      record.reservationTime,
+      record.durationMinutes,
+      record.status,
+      record.notes,
+      nowIso(),
+      nowIso()
+    );
+
+    return get("SELECT last_insert_rowid() AS id").id;
+  }
+
+  function listReservations(dateFrom = null, dateTo = null, status = null) {
+    let sql = `SELECT r.id, r.customer_name, r.customer_phone, r.customer_email, r.table_id, r.party_size,
+                      r.reservation_time, r.duration_minutes, r.status, r.notes, r.created_at, r.updated_at,
+                      t.name AS table_name, t.seats, t.zone
+               FROM reservations r
+               INNER JOIN tables t ON t.id = r.table_id`;
+    const params = [];
+
+    if (dateFrom) {
+      sql += ` WHERE r.reservation_time >= ?`;
+      params.push(dateFrom);
+    }
+
+    if (dateTo) {
+      sql += dateFrom ? ` AND` : ` WHERE`;
+      sql += ` r.reservation_time <= ?`;
+      params.push(dateTo);
+    }
+
+    if (status) {
+      sql += (dateFrom || dateTo) ? ` AND` : ` WHERE`;
+      sql += ` r.status = ?`;
+      params.push(status);
+    }
+
+    sql += ` ORDER BY r.reservation_time ASC`;
+
+    return all(sql, ...params).map((row) => ({
+      id: row.id,
+      customerName: row.customer_name,
+      customerPhone: row.customer_phone,
+      customerEmail: row.customer_email,
+      tableId: row.table_id,
+      tableName: row.table_name,
+      tableSeats: row.seats,
+      tableZone: row.zone,
+      partySize: row.party_size,
+      reservationTime: row.reservation_time,
+      durationMinutes: row.duration_minutes,
+      status: row.status,
+      notes: row.notes,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }));
+  }
+
+  function updateReservation(id, payload) {
+    const existing = get(`SELECT id FROM reservations WHERE id = ?`, Number(id));
+    if (!existing) {
+      throw createHttpError(404, "Reservation not found.");
+    }
+
+    const record = {
+      status: String(payload.status || "confirmed").trim(),
+      notes: String(payload.notes || "").trim()
+    };
+
+    run(
+      `UPDATE reservations
+       SET status = ?, notes = ?, updated_at = ?
+       WHERE id = ?`,
+      record.status,
+      record.notes,
+      nowIso(),
+      Number(id)
+    );
+
+    return listReservations().find(r => r.id === Number(id));
+  }
+
+  // Suppliers and Purchase Orders
+  function createSupplier(payload) {
+    const record = {
+      name: String(payload.name || "").trim(),
+      contactName: String(payload.contactName || "").trim(),
+      phone: String(payload.phone || "").trim(),
+      email: String(payload.email || "").trim(),
+      address: String(payload.address || "").trim(),
+      paymentTerms: String(payload.paymentTerms || "Net 30").trim(),
+      isActive: payload.isActive !== undefined ? Boolean(payload.isActive) : true
+    };
+
+    if (!record.name) {
+      throw createHttpError(400, "Supplier name is required.");
+    }
+
+    run(
+      `INSERT INTO suppliers (name, contact_name, phone, email, address, payment_terms, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      record.name,
+      record.contactName,
+      record.phone,
+      record.email,
+      record.address,
+      record.paymentTerms,
+      record.isActive ? 1 : 0,
+      nowIso(),
+      nowIso()
+    );
+
+    return get("SELECT last_insert_rowid() AS id").id;
+  }
+
+  function listSuppliers() {
+    return all(
+      `SELECT id, name, contact_name, phone, email, address, payment_terms, is_active, created_at, updated_at
+       FROM suppliers
+       ORDER BY name`
+    ).map((row) => ({
+      id: row.id,
+      name: row.name,
+      contactName: row.contact_name,
+      phone: row.phone,
+      email: row.email,
+      address: row.address,
+      paymentTerms: row.payment_terms,
+      isActive: Boolean(row.is_active),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }));
+  }
+
+  function createPurchaseOrder(payload) {
+    const record = {
+      supplierId: Number(payload.supplierId),
+      employeeId: Number(payload.employeeId),
+      status: String(payload.status || "draft").trim(),
+      expectedDelivery: String(payload.expectedDelivery || "").trim(),
+      notes: String(payload.notes || "").trim()
+    };
+
+    if (!record.supplierId || !record.employeeId) {
+      throw createHttpError(400, "Supplier ID and employee ID are required.");
+    }
+
+    const supplier = get(`SELECT id FROM suppliers WHERE id = ?`, record.supplierId);
+    if (!supplier) {
+      throw createHttpError(404, "Supplier not found.");
+    }
+
+    const employee = getEmployeeById(record.employeeId);
+    if (!employee) {
+      throw createHttpError(404, "Employee not found.");
+    }
+
+    run(
+      `INSERT INTO purchase_orders (supplier_id, employee_id, order_number, status, expected_delivery, notes, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      record.supplierId,
+      record.employeeId,
+      generatePurchaseOrderNumber(),
+      record.status,
+      record.expectedDelivery,
+      record.notes,
+      nowIso(),
+      nowIso()
+    );
+
+    return get("SELECT last_insert_rowid() AS id").id;
+  }
+
+  function generatePurchaseOrderNumber() {
+    const nextId = Number(get("SELECT COALESCE(MAX(id), 0) AS value FROM purchase_orders").value) + 1;
+    return `PO-${String(1000 + nextId).padStart(4, "0")}`;
+  }
+
+  function addPurchaseOrderItem(payload) {
+    const record = {
+      purchaseOrderId: Number(payload.purchaseOrderId),
+      menuItemId: Number(payload.menuItemId),
+      quantity: Number(payload.quantity || 1),
+      unitCost: Number(payload.unitCost || 0)
+    };
+
+    if (!record.purchaseOrderId || !record.menuItemId || record.quantity <= 0) {
+      throw createHttpError(400, "Purchase order ID, menu item ID, and positive quantity are required.");
+    }
+
+    const po = get(`SELECT id FROM purchase_orders WHERE id = ?`, record.purchaseOrderId);
+    if (!po) {
+      throw createHttpError(404, "Purchase order not found.");
+    }
+
+    const menuItem = getMenuItem(record.menuItemId);
+    if (!menuItem) {
+      throw createHttpError(404, "Menu item not found.");
+    }
+
+    run(
+      `INSERT INTO purchase_order_items (purchase_order_id, menu_item_id, quantity, unit_cost, line_total)
+       VALUES (?, ?, ?, ?, ?)`,
+      record.purchaseOrderId,
+      record.menuItemId,
+      record.quantity,
+      record.unitCost,
+      roundMoney(record.quantity * record.unitCost)
+    );
+
+    updatePurchaseOrderTotal(record.purchaseOrderId);
+    return get("SELECT last_insert_rowid() AS id").id;
+  }
+
+  function updatePurchaseOrderTotal(poId) {
+    const total = get(
+      `SELECT COALESCE(SUM(line_total), 0) AS total
+       FROM purchase_order_items
+       WHERE purchase_order_id = ?`,
+      poId
+    ).total;
+
+    run(
+      `UPDATE purchase_orders
+       SET total_amount = ?, updated_at = ?
+       WHERE id = ?`,
+      total,
+      nowIso(),
+      poId
+    );
+  }
+
+  function listPurchaseOrders(status = null) {
+    let sql = `SELECT po.id, po.supplier_id, po.employee_id, po.order_number, po.status, po.total_amount,
+                      po.expected_delivery, po.notes, po.created_at, po.updated_at,
+                      s.name AS supplier_name, e.full_name AS employee_name
+               FROM purchase_orders po
+               INNER JOIN suppliers s ON s.id = po.supplier_id
+               INNER JOIN employees e ON e.id = po.employee_id`;
+    const params = [];
+
+    if (status) {
+      sql += ` WHERE po.status = ?`;
+      params.push(status);
+    }
+
+    sql += ` ORDER BY po.created_at DESC`;
+
+    return all(sql, ...params).map((row) => ({
+      id: row.id,
+      supplierId: row.supplier_id,
+      supplierName: row.supplier_name,
+      employeeId: row.employee_id,
+      employeeName: row.employee_name,
+      orderNumber: row.order_number,
+      status: row.status,
+      totalAmount: row.total_amount,
+      expectedDelivery: row.expected_delivery,
+      notes: row.notes,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }));
+  }
+
+  // Audit Logging
+  function logAuditAction(employeeId, action, entityType, entityId = null, oldValues = null, newValues = null, ipAddress = null, userAgent = null) {
+    run(
+      `INSERT INTO audit_log (employee_id, action, entity_type, entity_id, old_values, new_values, ip_address, user_agent, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      employeeId ? Number(employeeId) : null,
+      action,
+      entityType,
+      entityId ? Number(entityId) : null,
+      oldValues ? JSON.stringify(oldValues) : null,
+      newValues ? JSON.stringify(newValues) : null,
+      ipAddress,
+      userAgent,
+      nowIso()
+    );
+  }
+
+  function listAuditLogs(entityType = null, entityId = null, limit = 100) {
+    let sql = `SELECT a.id, a.employee_id, a.action, a.entity_type, a.entity_id, a.old_values, a.new_values,
+                      a.ip_address, a.user_agent, a.created_at,
+                      e.full_name AS employee_name
+               FROM audit_log a
+               LEFT JOIN employees e ON e.id = a.employee_id`;
+    const params = [];
+
+    if (entityType) {
+      sql += ` WHERE a.entity_type = ?`;
+      params.push(entityType);
+    }
+
+    if (entityId) {
+      sql += entityType ? ` AND` : ` WHERE`;
+      sql += ` a.entity_id = ?`;
+      params.push(Number(entityId));
+    }
+
+    sql += ` ORDER BY a.created_at DESC LIMIT ?`;
+    params.push(Number(limit));
+
+    return all(sql, ...params).map((row) => ({
+      id: row.id,
+      employeeId: row.employee_id,
+      employeeName: row.employee_name,
+      action: row.action,
+      entityType: row.entity_type,
+      entityId: row.entity_id,
+      oldValues: row.old_values ? JSON.parse(row.old_values) : null,
+      newValues: row.new_values ? JSON.parse(row.new_values) : null,
+      ipAddress: row.ip_address,
+      userAgent: row.user_agent,
+      createdAt: row.created_at
+    }));
+  }
+
+  // Notifications
+  function createNotification(type, title, message, priority = "normal", relatedEntityType = null, relatedEntityId = null) {
+    run(
+      `INSERT INTO notifications (type, title, message, priority, related_entity_type, related_entity_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      type,
+      title,
+      message,
+      priority,
+      relatedEntityType,
+      relatedEntityId ? Number(relatedEntityId) : null,
+      nowIso()
+    );
+
+    return get("SELECT last_insert_rowid() AS id").id;
+  }
+
+  function listNotifications(unreadOnly = false) {
+    let sql = `SELECT id, type, title, message, priority, is_read, related_entity_type, related_entity_id, created_at
+               FROM notifications`;
+    const params = [];
+
+    if (unreadOnly) {
+      sql += ` WHERE is_read = 0`;
+    }
+
+    sql += ` ORDER BY created_at DESC`;
+
+    return all(sql, ...params).map((row) => ({
+      id: row.id,
+      type: row.type,
+      title: row.title,
+      message: row.message,
+      priority: row.priority,
+      isRead: Boolean(row.is_read),
+      relatedEntityType: row.related_entity_type,
+      relatedEntityId: row.related_entity_id,
+      createdAt: row.created_at
+    }));
+  }
+
+  function markNotificationRead(id) {
+    run(`UPDATE notifications SET is_read = 1 WHERE id = ?`, Number(id));
+  }
+
+  // Advanced Reporting
+  function generateSalesReport(dateFrom, dateTo, reportType = "daily") {
+    const orders = all(
+      `SELECT o.id, o.total, o.created_at, o.customer_id, c.name AS customer_name
+       FROM orders o
+       LEFT JOIN customers c ON c.id = o.customer_id
+       WHERE o.created_at >= ? AND o.created_at <= ? AND o.status = 'completed'`,
+      dateFrom,
+      dateTo
+    );
+
+    const totalSales = orders.reduce((sum, order) => sum + order.total, 0);
+    const totalOrders = orders.length;
+    const totalCustomers = new Set(orders.map(o => o.customer_id).filter(id => id)).size;
+
+    const itemSales = all(
+      `SELECT oi.item_name, SUM(oi.qty) AS quantity, SUM(oi.line_total) AS revenue
+       FROM order_items oi
+       INNER JOIN orders o ON o.id = oi.order_id
+       WHERE o.created_at >= ? AND o.created_at <= ? AND o.status = 'completed'
+       GROUP BY oi.item_name
+       ORDER BY revenue DESC`,
+      dateFrom,
+      dateTo
+    );
+
+    run(
+      `INSERT INTO sales_reports (report_type, date_from, date_to, total_sales, total_orders, total_customers, top_items, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      reportType,
+      dateFrom,
+      dateTo,
+      totalSales,
+      totalOrders,
+      totalCustomers,
+      JSON.stringify(itemSales.slice(0, 10)),
+      nowIso()
+    );
+
+    return {
+      reportType,
+      dateFrom,
+      dateTo,
+      totalSales: roundMoney(totalSales),
+      totalOrders,
+      totalCustomers,
+      topItems: itemSales.slice(0, 10),
+      averageOrderValue: totalOrders > 0 ? roundMoney(totalSales / totalOrders) : 0
+    };
+  }
+
+  function getLowStockAlerts() {
+    return all(
+      `SELECT id, name, stock, min_stock
+       FROM menu_items
+       WHERE stock <= min_stock AND available = 1
+       ORDER BY stock ASC`
+    ).map((row) => ({
+      id: row.id,
+      name: row.name,
+      currentStock: row.stock,
+      minStock: row.min_stock
+    }));
   }
 
   return {
@@ -864,7 +1539,28 @@ function createStore(dbFilePath) {
     listOrders,
     getOrder,
     createOrder,
-    updateOrderStatus
+    updateOrderStatus,
+    // Industry-level features
+    listEmployees,
+    createEmployee,
+    updateEmployee,
+    createEmployeeShift,
+    listEmployeeShifts,
+    createReservation,
+    listReservations,
+    updateReservation,
+    createSupplier,
+    listSuppliers,
+    createPurchaseOrder,
+    addPurchaseOrderItem,
+    listPurchaseOrders,
+    logAuditAction,
+    listAuditLogs,
+    createNotification,
+    listNotifications,
+    markNotificationRead,
+    generateSalesReport,
+    getLowStockAlerts
   };
 }
 
@@ -892,14 +1588,15 @@ function seedDatabase(db) {
     for (const item of DEFAULT_MENU_ITEMS) {
       run(
         `INSERT INTO menu_items
-         (name, category, description, price, cost, stock, available, prep_time, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (name, category, description, price, cost, stock, min_stock, available, prep_time, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         item.name,
         item.category,
         item.description,
         item.price,
         item.cost,
         item.stock,
+        5, // min_stock default
         item.available,
         item.prepTime,
         now
@@ -910,31 +1607,70 @@ function seedDatabase(db) {
   if (!get("SELECT COUNT(*) AS count FROM customers").count) {
     for (const customer of DEFAULT_CUSTOMERS) {
       run(
-        `INSERT INTO customers (name, phone, visits, loyalty_points, last_visit)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO customers (name, phone, visits, loyalty_points, total_spent, last_visit, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         customer.name,
         customer.phone,
         customer.visits,
         customer.loyaltyPoints,
+        customer.totalSpent || 0,
+        now,
+        now,
         now
       );
     }
   }
 
   if (!get("SELECT COUNT(*) AS count FROM employees").count) {
+    // Seed default manager
     run(
       `INSERT INTO employees
-       (full_name, email, role, password_hash, is_active, last_login_at, created_at, updated_at)
+       (full_name, email, role, password_hash, hourly_rate, is_active, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       DEFAULT_EMPLOYEE.fullName,
       normalizeEmail(DEFAULT_EMPLOYEE.email),
       DEFAULT_EMPLOYEE.role,
       hashPassword(DEFAULT_EMPLOYEE.password),
+      DEFAULT_EMPLOYEE.hourlyRate || 20.00,
       1,
-      null,
       now,
       now
     );
+
+    // Seed additional employees
+    for (const employee of DEFAULT_EMPLOYEES) {
+      run(
+        `INSERT INTO employees
+         (full_name, email, role, password_hash, hourly_rate, is_active, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        employee.fullName,
+        normalizeEmail(employee.email),
+        employee.role,
+        hashPassword(employee.password),
+        employee.hourlyRate,
+        1,
+        now,
+        now
+      );
+    }
+  }
+
+  if (!get("SELECT COUNT(*) AS count FROM suppliers").count) {
+    for (const supplier of DEFAULT_SUPPLIERS) {
+      run(
+        `INSERT INTO suppliers (name, contact_name, phone, email, address, payment_terms, is_active, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        supplier.name,
+        supplier.contactName,
+        supplier.phone,
+        supplier.email,
+        supplier.address,
+        supplier.paymentTerms,
+        1,
+        now,
+        now
+      );
+    }
   }
 
   run(`DELETE FROM employee_sessions WHERE expires_at <= ?`, now);
@@ -964,10 +1700,12 @@ function seedDatabase(db) {
         customerId = customer.id;
         run(
           `UPDATE customers
-           SET visits = ?, loyalty_points = ?, last_visit = ?
+           SET visits = ?, loyalty_points = ?, total_spent = total_spent + ?, last_visit = ?, updated_at = ?
            WHERE id = ?`,
           customer.visits + 1,
           customer.loyalty_points + 10,
+          100, // approximate order total for seeding
+          timestamp,
           timestamp,
           customer.id
         );
@@ -976,12 +1714,15 @@ function seedDatabase(db) {
 
     if (!customerId && sample.customerName) {
       run(
-        `INSERT INTO customers (name, phone, visits, loyalty_points, last_visit)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO customers (name, phone, visits, loyalty_points, total_spent, last_visit, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         sample.customerName,
         sample.customerPhone || null,
         1,
         10,
+        100, // approximate order total for seeding
+        timestamp,
+        timestamp,
         timestamp
       );
       customerId = get("SELECT last_insert_rowid() AS id").id;
@@ -1000,11 +1741,12 @@ function seedDatabase(db) {
 
     run(
       `INSERT INTO orders
-       (order_number, table_id, customer_id, order_type, status, payment_status, payment_method, notes, subtotal, tax, discount, total, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (order_number, table_id, customer_id, employee_id, order_type, status, payment_status, payment_method, notes, subtotal, tax, discount, total, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       `CM-${String(orderNumber).padStart(4, "0")}`,
       table ? table.id : null,
       customerId,
+      null, // employee_id
       sample.orderType,
       sample.status,
       sample.paymentStatus,
@@ -1026,14 +1768,15 @@ function seedDatabase(db) {
         continue;
       }
       run(
-        `INSERT INTO order_items (order_id, menu_item_id, item_name, qty, unit_price, line_total)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO order_items (order_id, menu_item_id, item_name, qty, unit_price, line_total, special_instructions)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
         orderId,
         menu.id,
         menu.name,
         item.qty,
         menu.price,
-        roundMoney(menu.price * item.qty)
+        roundMoney(menu.price * item.qty),
+        "" // special_instructions
       );
       run(`UPDATE menu_items SET stock = stock - ?, updated_at = ? WHERE id = ?`, item.qty, timestamp, menu.id);
       run(

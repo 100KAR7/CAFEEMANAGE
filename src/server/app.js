@@ -78,6 +78,9 @@ async function handleApiRequest({ request, response, pathname, store, session, s
   const restockMatch = pathname.match(/^\/api\/menu\/(\d+)\/restock$/);
   const tableMatch = pathname.match(/^\/api\/tables\/(\d+)$/);
   const orderStatusMatch = pathname.match(/^\/api\/orders\/(\d+)\/status$/);
+  const reservationMatch = pathname.match(/^\/api\/reservations\/(\d+)$/);
+  const purchaseOrderMatch = pathname.match(/^\/api\/purchase-orders\/(\d+)\/items$/);
+  const notificationMatch = pathname.match(/^\/api\/notifications\/(\d+)\/read$/);
 
   if (request.method === "GET" && pathname === "/api/health") {
     sendJson(response, 200, { ok: true, dbFile: store.dbFilePath });
@@ -137,6 +140,7 @@ async function handleApiRequest({ request, response, pathname, store, session, s
     return;
   }
 
+  // Menu endpoints
   if (request.method === "GET" && pathname === "/api/menu") {
     sendJson(response, 200, { items: store.listMenuItems() });
     return;
@@ -157,11 +161,17 @@ async function handleApiRequest({ request, response, pathname, store, session, s
   if (request.method === "POST" && restockMatch) {
     const payload = await parseJsonBody(request);
     sendJson(response, 200, {
-      item: store.restockItem(Number(restockMatch[1]), payload.quantity, payload.reason)
+      item: store.restockItem(
+        Number(restockMatch[1]),
+        payload.quantity,
+        payload.reason,
+        session.employee.id
+      )
     });
     return;
   }
 
+  // Table endpoints
   if (request.method === "GET" && pathname === "/api/tables") {
     sendJson(response, 200, { tables: store.listTables() });
     return;
@@ -173,6 +183,7 @@ async function handleApiRequest({ request, response, pathname, store, session, s
     return;
   }
 
+  // Order endpoints
   if (request.method === "GET" && pathname === "/api/orders") {
     sendJson(response, 200, { orders: store.listOrders() });
     return;
@@ -180,20 +191,168 @@ async function handleApiRequest({ request, response, pathname, store, session, s
 
   if (request.method === "POST" && pathname === "/api/orders") {
     const payload = await parseJsonBody(request);
-    sendJson(response, 201, { order: store.createOrder(payload) });
+    sendJson(response, 201, { order: store.createOrder(payload, session.employee.id) });
     return;
   }
 
   if (request.method === "PATCH" && orderStatusMatch) {
     const payload = await parseJsonBody(request);
     sendJson(response, 200, {
-      order: store.updateOrderStatus(Number(orderStatusMatch[1]), payload)
+      order: store.updateOrderStatus(Number(orderStatusMatch[1]), payload, session.employee.id)
     });
     return;
   }
 
+  // Customer endpoints
   if (request.method === "GET" && pathname === "/api/customers") {
     sendJson(response, 200, { customers: store.listCustomers() });
+    return;
+  }
+
+  // Employee management endpoints
+  if (request.method === "GET" && pathname === "/api/employees") {
+    sendJson(response, 200, { employees: store.listEmployees() });
+    return;
+  }
+
+  if (request.method === "POST" && pathname === "/api/employees") {
+    const payload = await parseJsonBody(request);
+    sendJson(response, 201, { employee: store.createEmployee(payload) });
+    return;
+  }
+
+  if (request.method === "PUT" && pathname.match(/^\/api\/employees\/(\d+)$/)) {
+    const employeeId = Number(pathname.match(/^\/api\/employees\/(\d+)$/)[1]);
+    const payload = await parseJsonBody(request);
+    sendJson(response, 200, { employee: store.updateEmployee(employeeId, payload) });
+    return;
+  }
+
+  if (request.method === "POST" && pathname === "/api/employee-shifts") {
+    const payload = await parseJsonBody(request);
+    const shiftId = store.createEmployeeShift(payload);
+    sendJson(response, 201, { id: shiftId });
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/employee-shifts") {
+    const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+    const employeeId = url.searchParams.get("employeeId");
+    const dateFrom = url.searchParams.get("dateFrom");
+    const dateTo = url.searchParams.get("dateTo");
+    sendJson(response, 200, {
+      shifts: store.listEmployeeShifts(
+        employeeId ? Number(employeeId) : null,
+        dateFrom,
+        dateTo
+      )
+    });
+    return;
+  }
+
+  // Reservation endpoints
+  if (request.method === "GET" && pathname === "/api/reservations") {
+    const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+    const dateFrom = url.searchParams.get("dateFrom");
+    const dateTo = url.searchParams.get("dateTo");
+    const status = url.searchParams.get("status");
+    sendJson(response, 200, { reservations: store.listReservations(dateFrom, dateTo, status) });
+    return;
+  }
+
+  if (request.method === "POST" && pathname === "/api/reservations") {
+    const payload = await parseJsonBody(request);
+    const reservationId = store.createReservation(payload);
+    sendJson(response, 201, { id: reservationId });
+    return;
+  }
+
+  if (request.method === "PUT" && reservationMatch) {
+    const payload = await parseJsonBody(request);
+    sendJson(response, 200, {
+      reservation: store.updateReservation(Number(reservationMatch[1]), payload)
+    });
+    return;
+  }
+
+  // Supplier endpoints
+  if (request.method === "GET" && pathname === "/api/suppliers") {
+    sendJson(response, 200, { suppliers: store.listSuppliers() });
+    return;
+  }
+
+  if (request.method === "POST" && pathname === "/api/suppliers") {
+    const payload = await parseJsonBody(request);
+    const supplierId = store.createSupplier(payload);
+    sendJson(response, 201, { id: supplierId });
+    return;
+  }
+
+  // Purchase order endpoints
+  if (request.method === "GET" && pathname === "/api/purchase-orders") {
+    const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+    const status = url.searchParams.get("status");
+    sendJson(response, 200, { purchaseOrders: store.listPurchaseOrders(status) });
+    return;
+  }
+
+  if (request.method === "POST" && pathname === "/api/purchase-orders") {
+    const payload = await parseJsonBody(request);
+    const poId = store.createPurchaseOrder(payload);
+    sendJson(response, 201, { id: poId });
+    return;
+  }
+
+  if (request.method === "POST" && purchaseOrderMatch) {
+    const payload = await parseJsonBody(request);
+    const purchaseOrderId = Number(purchaseOrderMatch[1]);
+    if (payload.purchaseOrderId && Number(payload.purchaseOrderId) !== purchaseOrderId) {
+      throw createHttpError(400, "Purchase order ID in the URL must match the request body.");
+    }
+    const itemId = store.addPurchaseOrderItem({
+      ...payload,
+      purchaseOrderId
+    });
+    sendJson(response, 201, { id: itemId });
+    return;
+  }
+
+  // Audit log endpoints
+  if (request.method === "GET" && pathname === "/api/audit-logs") {
+    const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+    const entityType = url.searchParams.get("entityType");
+    const entityId = url.searchParams.get("entityId");
+    const limit = url.searchParams.get("limit") || 100;
+    sendJson(response, 200, {
+      auditLogs: store.listAuditLogs(entityType, entityId ? Number(entityId) : null, Number(limit))
+    });
+    return;
+  }
+
+  // Notification endpoints
+  if (request.method === "GET" && pathname === "/api/notifications") {
+    const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+    const unreadOnly = url.searchParams.get("unreadOnly") === "true";
+    sendJson(response, 200, { notifications: store.listNotifications(unreadOnly) });
+    return;
+  }
+
+  if (request.method === "POST" && notificationMatch) {
+    store.markNotificationRead(Number(notificationMatch[1]));
+    sendJson(response, 200, { ok: true });
+    return;
+  }
+
+  // Reporting endpoints
+  if (request.method === "POST" && pathname === "/api/reports/sales") {
+    const payload = await parseJsonBody(request);
+    const report = store.generateSalesReport(payload.dateFrom, payload.dateTo, payload.reportType);
+    sendJson(response, 200, { report });
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/reports/low-stock") {
+    sendJson(response, 200, { alerts: store.getLowStockAlerts() });
     return;
   }
 
