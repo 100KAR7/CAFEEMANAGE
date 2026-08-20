@@ -15,6 +15,9 @@ const {
 const VALID_TABLE_STATUSES = new Set(["free", "occupied", "reserved", "cleaning"]);
 const VALID_ORDER_STATUSES = new Set(["placed", "preparing", "served", "completed", "cancelled"]);
 const VALID_PAYMENT_STATUSES = new Set(["pending", "paid", "refunded"]);
+const VALID_ROLES = new Set(["manager", "chef", "waiter", "barista", "staff"]);
+const VALID_RESERVATION_STATUSES = new Set(["confirmed", "seated", "completed", "cancelled", "no-show"]);
+const VALID_PURCHASE_ORDER_STATUSES = new Set(["draft", "sent", "received", "cancelled"]);
 const ORDER_STATUS_TRANSITIONS = {
   placed: new Set(["preparing", "served", "completed", "cancelled"]),
   preparing: new Set(["served", "completed", "cancelled"]),
@@ -173,9 +176,13 @@ function createStore(dbFilePath) {
     id: row.id,
     name: row.name,
     phone: row.phone,
+    email: row.email,
     visits: row.visits,
     loyaltyPoints: row.loyalty_points,
-    lastVisit: row.last_visit
+    totalSpent: row.total_spent,
+    lastVisit: row.last_visit,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
   });
 
   const normalizeEmployeeRow = (row) => ({
@@ -227,10 +234,72 @@ function createStore(dbFilePath) {
 
   function listCustomers() {
     return all(
-      `SELECT id, name, phone, visits, loyalty_points, last_visit
+      `SELECT id, name, phone, email, visits, loyalty_points, total_spent, last_visit, created_at, updated_at
        FROM customers
        ORDER BY visits DESC, last_visit DESC`
     ).map(normalizeCustomerRow);
+  }
+
+  function getCustomer(id) {
+    const row = get(
+      `SELECT id, name, phone, email, visits, loyalty_points, total_spent, last_visit, created_at, updated_at
+       FROM customers
+       WHERE id = ?`,
+      Number(id)
+    );
+    return row ? normalizeCustomerRow(row) : null;
+  }
+
+  function createCustomer(payload, employeeId = null) {
+    const record = {
+      name: String(payload.name || "").trim(),
+      phone: String(payload.phone || "").trim() || null,
+      email: String(payload.email || "").trim() || null
+    };
+    if (!record.name) {
+      throw createHttpError(400, "Guest name is required.");
+    }
+    const timestamp = nowIso();
+    run(
+      `INSERT INTO customers (name, phone, email, visits, loyalty_points, total_spent, last_visit, created_at, updated_at)
+       VALUES (?, ?, ?, 0, 0, 0, NULL, ?, ?)`,
+      record.name,
+      record.phone,
+      record.email,
+      timestamp,
+      timestamp
+    );
+    const customer = getCustomer(get("SELECT last_insert_rowid() AS id").id);
+    logAuditAction(employeeId, "create", "customer", customer.id, null, customer);
+    return customer;
+  }
+
+  function updateCustomer(id, payload, employeeId = null) {
+    const existing = getCustomer(id);
+    if (!existing) {
+      throw createHttpError(404, "Guest not found.");
+    }
+    const record = {
+      name: String(payload.name ?? existing.name).trim(),
+      phone: payload.phone !== undefined ? String(payload.phone || "").trim() || null : existing.phone,
+      email: payload.email !== undefined ? String(payload.email || "").trim() || null : existing.email
+    };
+    if (!record.name) {
+      throw createHttpError(400, "Guest name is required.");
+    }
+    run(
+      `UPDATE customers
+       SET name = ?, phone = ?, email = ?, updated_at = ?
+       WHERE id = ?`,
+      record.name,
+      record.phone,
+      record.email,
+      nowIso(),
+      Number(id)
+    );
+    const customer = getCustomer(id);
+    logAuditAction(employeeId, "update", "customer", Number(id), existing, customer);
+    return customer;
   }
 
   function getEmployeeByEmail(email) {
@@ -508,6 +577,25 @@ function createStore(dbFilePath) {
       }
     }
 
+    const kitchenQueue = orders.filter((order) => ["placed", "preparing"].includes(order.status));
+    const reservations = listReservations();
+    const reservationsToday = reservations.filter(
+      (reservation) => reservation.reservationTime.slice(0, 10) === today && !["cancelled", "no-show"].includes(reservation.status)
+    );
+    const employees = listEmployees();
+    const purchaseOrders = listPurchaseOrders();
+    const completedOrders = orders.filter((order) => order.status === "completed");
+    const completedRevenue = completedOrders.reduce((sum, order) => sum + order.total, 0);
+    const completedCost = completedOrders.reduce((sum, order) => {
+      return (
+        sum +
+        order.items.reduce((itemSum, item) => {
+          const menuItem = menuItems.find((entry) => entry.id === item.menuItemId);
+          return itemSum + Number(menuItem?.cost || 0) * item.qty;
+        }, 0)
+      );
+    }, 0);
+
     return {
       stats: {
         revenueToday: roundMoney(revenueToday),
@@ -516,7 +604,14 @@ function createStore(dbFilePath) {
         occupiedTables: tables.filter((table) => table.status === "occupied").length,
         totalTables: tables.length,
         lowStockCount: lowStockItems.length,
-        activeOrders: orders.filter((order) => !["completed", "cancelled"].includes(order.status)).length
+        activeOrders: orders.filter((order) => !["completed", "cancelled"].includes(order.status)).length,
+        kitchenQueue: kitchenQueue.length,
+        reservationsToday: reservationsToday.length,
+        unreadAlerts: listNotifications(true).length,
+        staffCount: employees.filter((employee) => employee.isActive).length,
+        pendingPurchaseOrders: purchaseOrders.filter((order) => ["draft", "sent"].includes(order.status)).length,
+        foodCostPercent: completedRevenue ? roundMoney((completedCost / completedRevenue) * 100) : 0,
+        guestCount: customers.length
       },
       lowStockItems: lowStockItems.sort((a, b) => a.stock - b.stock).slice(0, 6),
       recentOrders: orders.slice(0, 6),
@@ -524,17 +619,108 @@ function createStore(dbFilePath) {
       paymentBreakdown: Array.from(paymentBreakdown.entries()).map(([label, total]) => ({ label, total })),
       tableSnapshot: tables,
       customerSpotlight: customers.slice(0, 5),
-      categoryMix: Array.from(categoryMix.values()).sort((a, b) => b.revenue - a.revenue)
+      categoryMix: Array.from(categoryMix.values()).sort((a, b) => b.revenue - a.revenue),
+      kitchenQueue: kitchenQueue.slice(0, 8),
+      upcomingReservations: reservationsToday.slice(0, 6)
     };
   }
 
-  function getBootstrap() {
+  function getSettings() {
+    const row = get(
+      `SELECT id, name, tagline, address, phone, email, gstin, tax_rate, service_charge, currency, opening_hours, updated_at
+       FROM restaurant_settings
+       WHERE id = 1`
+    );
+
+    if (!row) {
+      const timestamp = nowIso();
+      run(
+        `INSERT INTO restaurant_settings (id, updated_at)
+         VALUES (1, ?)`,
+        timestamp
+      );
+      return getSettings();
+    }
+
     return {
-      brand: { name: "CafeMaster", tagline: "Phase One Operations Hub" },
+      id: row.id,
+      name: row.name,
+      tagline: row.tagline,
+      address: row.address,
+      phone: row.phone,
+      email: row.email,
+      gstin: row.gstin,
+      taxRate: row.tax_rate,
+      serviceCharge: row.service_charge,
+      currency: row.currency,
+      openingHours: row.opening_hours,
+      updatedAt: row.updated_at
+    };
+  }
+
+  function updateSettings(payload, employeeId = null) {
+    const existing = getSettings();
+    const record = {
+      name: String(payload.name ?? existing.name).trim(),
+      tagline: String(payload.tagline ?? existing.tagline).trim(),
+      address: String(payload.address ?? existing.address ?? "").trim(),
+      phone: String(payload.phone ?? existing.phone ?? "").trim(),
+      email: String(payload.email ?? existing.email ?? "").trim(),
+      gstin: String(payload.gstin ?? existing.gstin ?? "").trim(),
+      taxRate: Number(payload.taxRate ?? existing.taxRate),
+      serviceCharge: Number(payload.serviceCharge ?? existing.serviceCharge),
+      currency: String(payload.currency ?? existing.currency).trim().toUpperCase(),
+      openingHours: String(payload.openingHours ?? existing.openingHours ?? "").trim()
+    };
+
+    if (!record.name || !record.tagline || !record.currency) {
+      throw createHttpError(400, "Restaurant name, tagline, and currency are required.");
+    }
+    if (!Number.isFinite(record.taxRate) || record.taxRate < 0 || record.taxRate > 1) {
+      throw createHttpError(400, "Tax rate must be between 0 and 1.");
+    }
+    if (!Number.isFinite(record.serviceCharge) || record.serviceCharge < 0 || record.serviceCharge > 1) {
+      throw createHttpError(400, "Service charge must be between 0 and 1.");
+    }
+
+    run(
+      `UPDATE restaurant_settings
+       SET name = ?, tagline = ?, address = ?, phone = ?, email = ?, gstin = ?, tax_rate = ?, service_charge = ?, currency = ?, opening_hours = ?, updated_at = ?
+       WHERE id = 1`,
+      record.name,
+      record.tagline,
+      record.address,
+      record.phone,
+      record.email,
+      record.gstin,
+      record.taxRate,
+      record.serviceCharge,
+      record.currency,
+      record.openingHours,
+      nowIso()
+    );
+
+    const settings = getSettings();
+    logAuditAction(employeeId, "update", "restaurant_settings", 1, existing, settings);
+    return settings;
+  }
+
+  function getBootstrap() {
+    const settings = getSettings();
+    return {
+      brand: { name: settings.name, tagline: settings.tagline },
+      settings,
       menuItems: listMenuItems(),
       tables: listTables(),
       customers: listCustomers(),
       orders: listOrders(),
+      employees: listEmployees(),
+      shifts: listEmployeeShifts(),
+      reservations: listReservations(),
+      suppliers: listSuppliers(),
+      purchaseOrders: listPurchaseOrders(),
+      notifications: listNotifications(),
+      auditLogs: listAuditLogs(null, null, 80),
       dashboard: getDashboard(),
       generatedAt: nowIso()
     };
@@ -686,7 +872,9 @@ function createStore(dbFilePath) {
       reason,
       timestamp
     );
-    return getMenuItem(id);
+    const updated = getMenuItem(id);
+    logAuditAction(employeeId, "restock", "menu_item", Number(id), { stock: item.stock }, { stock: updated.stock, quantity: amount, reason });
+    return updated;
   }
 
   function updateTableState(id, payload) {
@@ -785,7 +973,9 @@ function createStore(dbFilePath) {
 
     const subtotal = roundMoney(resolvedItems.reduce((sum, item) => sum + item.lineTotal, 0));
     const taxableAmount = Math.max(0, subtotal - discount);
-    const tax = roundMoney(payload.tax === undefined ? taxableAmount * 0.05 : Number(payload.tax));
+    const settings = getSettings();
+    const taxRate = Number(settings.taxRate || 0.05);
+    const tax = roundMoney(payload.tax === undefined ? taxableAmount * taxRate : Number(payload.tax));
     const total = roundMoney(taxableAmount + tax);
     const timestamp = nowIso();
     const orderNumber = generateOrderNumber();
@@ -853,7 +1043,26 @@ function createStore(dbFilePath) {
       }
 
       db.exec("COMMIT");
-      return getOrder(orderId);
+      const created = getOrder(orderId);
+      logAuditAction(employeeId, "create", "order", orderId, null, {
+        orderNumber,
+        total,
+        status
+      });
+      for (const item of resolvedItems) {
+        const remaining = getMenuItem(item.menuItemId);
+        if (remaining && isLowStockMenuItem(remaining)) {
+          createNotification(
+            "inventory",
+            "Low stock after sale",
+            `${remaining.name} is down to ${remaining.stock} units after ${orderNumber}.`,
+            "high",
+            "menu_item",
+            remaining.id
+          );
+        }
+      }
+      return created;
     } catch (error) {
       db.exec("ROLLBACK");
       throw error;
@@ -960,6 +1169,9 @@ function createStore(dbFilePath) {
     if (!record.fullName || !record.email) {
       throw createHttpError(400, "Full name and email are required.");
     }
+    if (!VALID_ROLES.has(record.role)) {
+      throw createHttpError(400, "Role must be manager, chef, waiter, barista, or staff.");
+    }
     if (!record.password) {
       throw createHttpError(400, "Password is required.");
     }
@@ -996,6 +1208,9 @@ function createStore(dbFilePath) {
 
     if (!record.fullName || !record.email) {
       throw createHttpError(400, "Full name and email are required.");
+    }
+    if (!VALID_ROLES.has(record.role)) {
+      throw createHttpError(400, "Role must be manager, chef, waiter, barista, or staff.");
     }
 
     run(
@@ -1102,6 +1317,9 @@ function createStore(dbFilePath) {
       notes: String(payload.notes || "").trim()
     };
 
+    if (!VALID_RESERVATION_STATUSES.has(record.status)) {
+      throw createHttpError(400, "Invalid reservation status.");
+    }
     if (!record.customerName || !record.tableId || !record.reservationTime) {
       throw createHttpError(400, "Customer name, table ID, and reservation time are required.");
     }
@@ -1131,7 +1349,28 @@ function createStore(dbFilePath) {
       nowIso()
     );
 
-    return get("SELECT last_insert_rowid() AS id").id;
+    const reservationId = get("SELECT last_insert_rowid() AS id").id;
+    if (record.status === "confirmed") {
+      const reservationDay = record.reservationTime.slice(0, 10);
+      const today = new Date().toISOString().slice(0, 10);
+      if (reservationDay === today && table.status === "free") {
+        run(
+          `UPDATE tables SET status = ?, updated_at = ? WHERE id = ?`,
+          "reserved",
+          nowIso(),
+          record.tableId
+        );
+      }
+    }
+    createNotification(
+      "reservation",
+      "New reservation",
+      `${record.customerName} booked ${table.name} for ${record.partySize} guests.`,
+      "normal",
+      "reservation",
+      reservationId
+    );
+    return reservationId;
   }
 
   function listReservations(dateFrom = null, dateTo = null, status = null) {
@@ -1186,22 +1425,43 @@ function createStore(dbFilePath) {
       throw createHttpError(404, "Reservation not found.");
     }
 
+    const current = listReservations().find((reservation) => reservation.id === Number(id));
     const record = {
-      status: String(payload.status || "confirmed").trim(),
-      notes: String(payload.notes || "").trim()
+      status: String(payload.status || current.status || "confirmed").trim(),
+      notes: payload.notes !== undefined ? String(payload.notes || "").trim() : current.notes,
+      customerName: String(payload.customerName ?? current.customerName).trim(),
+      customerPhone: String(payload.customerPhone ?? (current.customerPhone || "")).trim(),
+      partySize: Number(payload.partySize ?? current.partySize),
+      reservationTime: String(payload.reservationTime ?? current.reservationTime).trim()
     };
+    if (!VALID_RESERVATION_STATUSES.has(record.status)) {
+      throw createHttpError(400, "Invalid reservation status.");
+    }
 
     run(
       `UPDATE reservations
-       SET status = ?, notes = ?, updated_at = ?
+       SET status = ?, notes = ?, customer_name = ?, customer_phone = ?, party_size = ?, reservation_time = ?, updated_at = ?
        WHERE id = ?`,
       record.status,
       record.notes,
+      record.customerName,
+      record.customerPhone,
+      record.partySize,
+      record.reservationTime,
       nowIso(),
       Number(id)
     );
 
-    return listReservations().find(r => r.id === Number(id));
+    if (current?.tableId) {
+      if (record.status === "seated") {
+        run(`UPDATE tables SET status = ?, updated_at = ? WHERE id = ? AND active_order_id IS NULL`, "occupied", nowIso(), current.tableId);
+      }
+      if (["cancelled", "no-show", "completed"].includes(record.status)) {
+        run(`UPDATE tables SET status = ?, updated_at = ? WHERE id = ? AND active_order_id IS NULL`, "free", nowIso(), current.tableId);
+      }
+    }
+
+    return listReservations().find((reservation) => reservation.id === Number(id));
   }
 
   // Suppliers and Purchase Orders
@@ -1267,6 +1527,9 @@ function createStore(dbFilePath) {
 
     if (!record.supplierId || !record.employeeId) {
       throw createHttpError(400, "Supplier ID and employee ID are required.");
+    }
+    if (!VALID_PURCHASE_ORDER_STATUSES.has(record.status)) {
+      throw createHttpError(400, "Invalid purchase order status.");
     }
 
     const supplier = get(`SELECT id FROM suppliers WHERE id = ?`, record.supplierId);
@@ -1559,6 +1822,8 @@ function createStore(dbFilePath) {
     createEmployeeSession,
     getEmployeeSession,
     deleteEmployeeSession,
+    getSettings,
+    updateSettings,
     listMenuItems,
     getMenuItem,
     createMenuItem,
@@ -1568,6 +1833,9 @@ function createStore(dbFilePath) {
     getTable,
     updateTableState,
     listCustomers,
+    getCustomer,
+    createCustomer,
+    updateCustomer,
     listOrders,
     getOrder,
     createOrder,

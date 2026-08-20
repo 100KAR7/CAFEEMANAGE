@@ -213,3 +213,18 @@ CREATE TABLE IF NOT EXISTS sales_reports (
   top_items TEXT,
   created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS restaurant_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  name TEXT NOT NULL DEFAULT 'CafeMaster',
+  tagline TEXT NOT NULL DEFAULT 'Restaurant Operations OS',
+  address TEXT DEFAULT '',
+  phone TEXT DEFAULT '',
+  email TEXT DEFAULT '',
+  gstin TEXT DEFAULT '',
+  tax_rate REAL NOT NULL DEFAULT 0.05,
+  service_charge REAL NOT NULL DEFAULT 0,
+  currency TEXT NOT NULL DEFAULT 'INR',
+  opening_hours TEXT DEFAULT '07:30 - 22:30',
+  updated_at TEXT NOT NULL
+);

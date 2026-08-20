@@ -45,6 +45,101 @@ async function main() {
     assert.ok(Array.isArray(bootstrap.tables));
     assert.equal(bootstrap.currentEmployee.email, "admin@cafemaster.local");
     assert.ok(bootstrap.currentEmployee.id);
+    assert.ok(Array.isArray(bootstrap.reservations));
+    assert.ok(Array.isArray(bootstrap.employees));
+    assert.ok(Array.isArray(bootstrap.suppliers));
+    assert.ok(Array.isArray(bootstrap.purchaseOrders));
+    assert.ok(bootstrap.settings);
+
+    const settingsResponse = await fetch(`${base}/api/settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Cookie: sessionCookie },
+      body: JSON.stringify({
+        ...bootstrap.settings,
+        tagline: "Phase Two Operations OS",
+        taxRate: 0.07
+      })
+    });
+    assert.equal(settingsResponse.status, 200);
+    const settingsPayload = await settingsResponse.json();
+    assert.equal(settingsPayload.settings.taxRate, 0.07);
+
+    const customerResponse = await fetch(`${base}/api/customers`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: sessionCookie },
+      body: JSON.stringify({
+        name: "Smoke Phase Two Guest",
+        phone: "9888800001",
+        email: "phase2.guest@example.test"
+      })
+    });
+    assert.equal(customerResponse.status, 201);
+    const customerPayload = await customerResponse.json();
+    assert.equal(customerPayload.customer.email, "phase2.guest@example.test");
+
+    const employeeResponse = await fetch(`${base}/api/employees`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: sessionCookie },
+      body: JSON.stringify({
+        fullName: "Smoke Phase Two Staff",
+        email: "phase2.staff@example.test",
+        role: "staff",
+        hourlyRate: 14,
+        password: "Phase2@123"
+      })
+    });
+    assert.equal(employeeResponse.status, 201);
+    const employeePayload = await employeeResponse.json();
+    assert.equal(employeePayload.employee.role, "staff");
+
+    const shiftResponse = await fetch(`${base}/api/employee-shifts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: sessionCookie },
+      body: JSON.stringify({
+        employeeId: employeePayload.employee.id,
+        startTime: "2026-08-21T09:00",
+        endTime: "2026-08-21T17:00",
+        role: "service"
+      })
+    });
+    assert.equal(shiftResponse.status, 201);
+
+    const reservationTable = bootstrap.tables.find((entry) => entry.status === "free");
+    assert.ok(reservationTable);
+    const reservationResponse = await fetch(`${base}/api/reservations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: sessionCookie },
+      body: JSON.stringify({
+        customerName: "Smoke Reservation Guest",
+        customerPhone: "9888800002",
+        tableId: reservationTable.id,
+        partySize: Math.min(2, reservationTable.seats),
+        reservationTime: "2026-08-21T19:30",
+        notes: "Smoke reservation"
+      })
+    });
+    assert.equal(reservationResponse.status, 201);
+    const reservationPayload = await reservationResponse.json();
+    const seatedReservationResponse = await fetch(`${base}/api/reservations/${reservationPayload.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Cookie: sessionCookie },
+      body: JSON.stringify({ status: "completed" })
+    });
+    assert.equal(seatedReservationResponse.status, 200);
+
+    const purchaseOrderResponse = await fetch(`${base}/api/purchase-orders`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: sessionCookie },
+      body: JSON.stringify({
+        supplierId: bootstrap.suppliers[0].id,
+        employeeId: bootstrap.currentEmployee.id,
+        status: "draft",
+        expectedDelivery: "2026-08-24",
+        notes: "Smoke purchase order"
+      })
+    });
+    assert.equal(purchaseOrderResponse.status, 201);
+    const purchaseOrderPayload = await purchaseOrderResponse.json();
 
     const createMenuItemResponse = await fetch(`${base}/api/menu`, {
       method: "POST",
@@ -65,6 +160,17 @@ async function main() {
     assert.equal(createMenuItemResponse.status, 201);
     const createdMenuItemPayload = await createMenuItemResponse.json();
     assert.equal(createdMenuItemPayload.item.minStock, 4);
+
+    const purchaseOrderItemResponse = await fetch(`${base}/api/purchase-orders/${purchaseOrderPayload.id}/items`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: sessionCookie },
+      body: JSON.stringify({
+        menuItemId: createdMenuItemPayload.item.id,
+        quantity: 8,
+        unitCost: 44
+      })
+    });
+    assert.equal(purchaseOrderItemResponse.status, 201);
 
     const lowStockAfterCreate = await fetch(`${base}/api/reports/low-stock`, {
       headers: { Cookie: sessionCookie }
@@ -90,7 +196,10 @@ async function main() {
     assert.ok(!lowStockAfterRestock.alerts.some((alert) => alert.id === createdMenuItemPayload.item.id));
 
     const menuItem = bootstrap.menuItems.find((item) => item.available && item.stock > 0);
-    const table = bootstrap.tables.find((entry) => entry.status === "free");
+    const latestTables = await fetch(`${base}/api/tables`, {
+      headers: { Cookie: sessionCookie }
+    }).then((response) => response.json());
+    const table = latestTables.tables.find((entry) => entry.status === "free");
     assert.ok(menuItem);
     assert.ok(table);
 
@@ -135,6 +244,32 @@ async function main() {
     }).then((response) => response.json());
     const updatedTable = tablesPayload.tables.find((entry) => entry.id === table.id);
     assert.equal(updatedTable.status, "free");
+
+    const salesReportResponse = await fetch(`${base}/api/reports/sales`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: sessionCookie },
+      body: JSON.stringify({
+        dateFrom: "1970-01-01T00:00:00.000Z",
+        dateTo: "2999-12-31T23:59:59.999Z",
+        reportType: "smoke"
+      })
+    });
+    assert.equal(salesReportResponse.status, 200);
+    const salesReportPayload = await salesReportResponse.json();
+    assert.ok(salesReportPayload.report.totalOrders >= 1);
+
+    const notificationsPayload = await fetch(`${base}/api/notifications`, {
+      headers: { Cookie: sessionCookie }
+    }).then((response) => response.json());
+    assert.ok(Array.isArray(notificationsPayload.notifications));
+    if (notificationsPayload.notifications.length) {
+      const readResponse = await fetch(`${base}/api/notifications/${notificationsPayload.notifications[0].id}/read`, {
+        method: "POST",
+        headers: { Cookie: sessionCookie, "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      });
+      assert.equal(readResponse.status, 200);
+    }
 
     const logoutResponse = await fetch(`${base}/api/auth/logout`, {
       method: "POST",

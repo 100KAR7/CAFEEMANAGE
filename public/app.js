@@ -16,6 +16,18 @@ const icons = {
     '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8"/><path d="M1 8h22"/><path d="M10 12h4"/></svg>',
   orders:
     '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>',
+  guests:
+    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 21v-2a4 4 0 0 0-8 0v2"/><circle cx="12" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+  calendar:
+    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>',
+  staff:
+    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+  purchasing:
+    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18M16 10a4 4 0 0 1-8 0"/></svg>',
+  reports:
+    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-7"/></svg>',
+  bell:
+    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
   refresh:
     '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>',
   plus:
@@ -57,8 +69,13 @@ const state = {
     menuSearch: "",
     orderStatus: "All",
     orderSearch: "",
-    inventorySearch: ""
-  }
+    inventorySearch: "",
+    customerSearch: "",
+    reservationStatus: "All",
+    employeeSearch: "",
+    purchaseStatus: "All"
+  },
+  report: null
 };
 
 const screenMeta = {
@@ -85,6 +102,26 @@ const screenMeta = {
   orders: {
     title: "Order History",
     subtitle: "Review every saved order and move it through service states."
+  },
+  guests: {
+    title: "Guest CRM",
+    subtitle: "Create guest records and track visits, loyalty, and spend."
+  },
+  reservations: {
+    title: "Reservations",
+    subtitle: "Book tables, seat guests, and manage the day ahead."
+  },
+  staff: {
+    title: "Staff & Shifts",
+    subtitle: "Manage employees and publish shift records."
+  },
+  purchasing: {
+    title: "Purchasing",
+    subtitle: "Track suppliers, draft purchase orders, and add order lines."
+  },
+  reports: {
+    title: "Reports & Control",
+    subtitle: "Generate sales reports, review alerts, audit changes, and tune settings."
   }
 };
 
@@ -94,13 +131,19 @@ const navigation = [
   { id: "tables", label: "Tables", icon: icons.tables },
   { id: "menu", label: "Menu", icon: icons.menu },
   { id: "inventory", label: "Inventory", icon: icons.inventory },
-  { id: "orders", label: "Orders", icon: icons.orders }
+  { id: "orders", label: "Orders", icon: icons.orders },
+  { id: "guests", label: "Guests", icon: icons.guests },
+  { id: "reservations", label: "Reservations", icon: icons.calendar },
+  { id: "staff", label: "Staff", icon: icons.staff },
+  { id: "purchasing", label: "Purchasing", icon: icons.purchasing },
+  { id: "reports", label: "Reports", icon: icons.reports }
 ];
 
 function currentCurrency(value) {
+  const currency = state.data?.settings?.currency || "INR";
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
-    currency: "INR",
+    currency,
     maximumFractionDigits: 0
   }).format(Number(value || 0));
 }
@@ -304,12 +347,15 @@ function filteredMenuItems() {
 function getCartTotals() {
   const subtotal = state.cart.reduce((sum, item) => sum + item.qty * item.price, 0);
   const discount = Math.max(0, Number(state.pos.discount || 0));
-  const tax = Math.max(0, subtotal - discount) * 0.05;
+  const taxableAmount = Math.max(0, subtotal - discount);
+  const serviceCharge = taxableAmount * Number(state.data?.settings?.serviceCharge || 0);
+  const tax = taxableAmount * Number(state.data?.settings?.taxRate || 0.05);
   return {
     subtotal,
     discount,
+    serviceCharge,
     tax,
-    total: subtotal - discount + tax
+    total: taxableAmount + serviceCharge + tax
   };
 }
 
@@ -363,6 +409,7 @@ function syncCartTotals() {
   const values = {
     subtotal: currentCurrency(totals.subtotal),
     discount: currentCurrency(totals.discount),
+    serviceCharge: currentCurrency(totals.serviceCharge),
     tax: currentCurrency(totals.tax),
     total: currentCurrency(totals.total)
   };
@@ -488,7 +535,7 @@ function render() {
               <p>${escapeHtml(state.data.brand.tagline)}</p>
             </div>
           </div>
-          <div class="phase-badge">Phase One • SQLite Enabled • Ready For Operations</div>
+          <div class="phase-badge">Phase Two • Reservations • Staff • Purchasing • Reports</div>
         </div>
         <nav class="nav-list">
           ${navigation
@@ -496,8 +543,12 @@ function render() {
               const badge =
                 item.id === "orders"
                   ? `<span class="tiny-chip">${activeOrders} live</span>`
-                  : item.id === "inventory"
-                    ? `<span class="tiny-chip">${lowStockCount} low</span>`
+                    : item.id === "inventory"
+                      ? `<span class="tiny-chip">${lowStockCount} low</span>`
+                      : item.id === "reservations"
+                        ? `<span class="tiny-chip">${state.data.dashboard.stats.reservationsToday} today</span>`
+                        : item.id === "reports"
+                          ? `<span class="tiny-chip">${state.data.dashboard.stats.unreadAlerts} alerts</span>`
                     : "";
               return `
                 <button class="nav-button ${state.screen === item.id ? "active" : ""}" data-action="navigate" data-screen="${item.id}">
@@ -512,9 +563,9 @@ function render() {
             .join("")}
         </nav>
         <div class="sidebar-foot">
-          <strong>Phase one wins</strong><br />
-          Orders, stock, menu changes, tables, and customer visits now stay stored in SQLite instead
-          of disappearing on refresh.
+          <strong>Phase two controls</strong><br />
+          Reservations, staff schedules, supplier purchasing, audit logs, and settings are now part
+          of the working operations console.
         </div>
       </aside>
       <main class="main">
@@ -555,6 +606,16 @@ function renderScreen() {
       return renderInventory();
     case "orders":
       return renderOrders();
+    case "guests":
+      return renderGuests();
+    case "reservations":
+      return renderReservations();
+    case "staff":
+      return renderStaff();
+    case "purchasing":
+      return renderPurchasing();
+    case "reports":
+      return renderReports();
     default:
       return "";
   }
@@ -567,15 +628,15 @@ function renderDashboard() {
     <section class="card hero">
       <div class="hero-copy">
         <div class="pill">Operations summary</div>
-        <h1>Everything your phase-one cafe needs in one warm control room.</h1>
+        <h1>Phase two brings the full operating rhythm into one control room.</h1>
         <p>
-          The app now keeps your menu, inventory, order history, table statuses, and customer visits
-          stored in SQLite. That means fewer manual fixes and a cleaner path into phase two.
+          Reservations, guests, staff, purchasing, notifications, reporting, and audit trails now
+          sit beside POS, menu, inventory, and table control.
         </p>
         <div class="hero-actions">
           <button class="btn btn-primary" data-action="jump" data-screen="pos">${icons.plus} Start New Order</button>
-          <button class="btn btn-secondary" data-action="jump" data-screen="inventory">Review Low Stock</button>
-          <button class="btn btn-secondary" data-action="jump" data-screen="menu">Manage Menu</button>
+          <button class="btn btn-secondary" data-action="jump" data-screen="reservations">Book Table</button>
+          <button class="btn btn-secondary" data-action="jump" data-screen="reports">Review Control Center</button>
         </div>
       </div>
       <div class="hero-panel">
@@ -598,8 +659,53 @@ function renderDashboard() {
     <section class="stat-grid">
       <article class="stat-card"><div class="muted-label">Orders today</div><div class="value">${stats.ordersToday}</div></article>
       <article class="stat-card"><div class="muted-label">Active orders</div><div class="value">${stats.activeOrders}</div></article>
-      <article class="stat-card"><div class="muted-label">Low-stock items</div><div class="value">${stats.lowStockCount}</div></article>
-      <article class="stat-card"><div class="muted-label">Menu items live</div><div class="value">${menuItems.filter((item) => item.available).length}</div></article>
+      <article class="stat-card"><div class="muted-label">Kitchen queue</div><div class="value">${stats.kitchenQueue}</div></article>
+      <article class="stat-card"><div class="muted-label">Reservations today</div><div class="value">${stats.reservationsToday}</div></article>
+      <article class="stat-card"><div class="muted-label">Staff active</div><div class="value">${stats.staffCount}</div></article>
+      <article class="stat-card"><div class="muted-label">Food cost</div><div class="value">${stats.foodCostPercent}%</div></article>
+    </section>
+    <section class="two-up">
+      <article class="card card-pad">
+        <div class="section-header">
+          <div>
+            <h3>Kitchen queue</h3>
+            <p>Placed and preparing orders for the team.</p>
+          </div>
+        </div>
+        <div class="list">
+          ${dashboard.kitchenQueue
+            .map(
+              (order) => `
+                <div class="list-item">
+                  <div class="row"><strong>${escapeHtml(order.orderNumber)}</strong>${statusChip(order.status)}</div>
+                  <p>${escapeHtml(order.items.map((item) => `${item.qty}x ${item.name}`).join(", "))}</p>
+                </div>
+              `
+            )
+            .join("") || '<div class="empty-state">No active kitchen tickets.</div>'}
+        </div>
+      </article>
+      <article class="card card-pad">
+        <div class="section-header">
+          <div>
+            <h3>Upcoming reservations</h3>
+            <p>Confirmed bookings for today.</p>
+          </div>
+          <button class="btn btn-secondary btn-sm" data-action="jump" data-screen="reservations">Open</button>
+        </div>
+        <div class="list">
+          ${dashboard.upcomingReservations
+            .map(
+              (reservation) => `
+                <div class="list-item">
+                  <div class="row"><strong>${escapeHtml(reservation.customerName)}</strong>${statusChip(reservation.status)}</div>
+                  <p>${escapeHtml(reservation.tableName)} • ${reservation.partySize} guests • ${shortDate(reservation.reservationTime)}</p>
+                </div>
+              `
+            )
+            .join("") || '<div class="empty-state">No reservations due today.</div>'}
+        </div>
+      </article>
     </section>
     <section class="dashboard-grid">
       <article class="card card-pad">
@@ -869,6 +975,7 @@ function renderPos() {
           <div class="cart-total">
             <div class="summary-row"><span class="muted-label">Subtotal</span><strong data-cart-total="subtotal">${currentCurrency(totals.subtotal)}</strong></div>
             <div class="summary-row"><span class="muted-label">Discount</span><strong data-cart-total="discount">${currentCurrency(totals.discount)}</strong></div>
+            <div class="summary-row"><span class="muted-label">Service charge</span><strong data-cart-total="serviceCharge">${currentCurrency(totals.serviceCharge)}</strong></div>
             <div class="summary-row"><span class="muted-label">Tax</span><strong data-cart-total="tax">${currentCurrency(totals.tax)}</strong></div>
             <div class="summary-row" style="margin-top:0.55rem"><span>Total</span><strong data-cart-total="total">${currentCurrency(totals.total)}</strong></div>
           </div>
@@ -1056,6 +1163,333 @@ function renderOrders() {
   `;
 }
 
+function renderGuests() {
+  const customers = state.data.customers || [];
+  return `
+    <section class="screen-grid">
+      <article class="card card-pad">
+        <div class="section-header">
+          <div>
+            <h3>Guest directory</h3>
+            <p>Search loyalty records and edit contact details.</p>
+          </div>
+          <input class="search-bar" type="search" placeholder="Search guests..." value="${escapeHtml(state.filters.customerSearch)}" data-filter="customer-search" />
+        </div>
+        <div class="list">
+          ${customers
+            .map(
+              (customer) => `
+                <div class="list-item" data-customer-row data-search="${escapeHtml(`${customer.name} ${customer.phone || ""} ${customer.email || ""}`.toLowerCase())}">
+                  <div class="row">
+                    <div>
+                      <strong>${escapeHtml(customer.name)}</strong>
+                      <p>${escapeHtml(customer.phone || "No phone")} • ${escapeHtml(customer.email || "No email")}</p>
+                    </div>
+                    <span class="tiny-chip">${customer.loyaltyPoints} pts</span>
+                  </div>
+                  <div class="row">
+                    <span class="muted-label">${customer.visits} visits • ${currentCurrency(customer.totalSpent)} spent</span>
+                    <button class="btn btn-secondary btn-sm" data-action="edit-customer" data-id="${customer.id}">Edit</button>
+                  </div>
+                </div>
+              `
+            )
+            .join("") || '<div class="empty-state">No guests saved yet.</div>'}
+        </div>
+      </article>
+      <aside class="card card-pad">
+        <div class="section-header">
+          <div>
+            <h3>Add guest</h3>
+            <p>Create a reusable customer profile.</p>
+          </div>
+        </div>
+        <form class="stack" data-form="customer">
+          <div class="field"><label>Name</label><input name="name" required /></div>
+          <div class="field"><label>Phone</label><input name="phone" type="tel" /></div>
+          <div class="field"><label>Email</label><input name="email" type="email" /></div>
+          <button class="btn btn-primary" type="submit">${icons.plus} Save Guest</button>
+        </form>
+      </aside>
+    </section>
+  `;
+}
+
+function renderReservations() {
+  const reservations = (state.data.reservations || []).filter(
+    (reservation) => state.filters.reservationStatus === "All" || reservation.status === state.filters.reservationStatus
+  );
+  return `
+    <section class="screen-grid">
+      <article class="card card-pad">
+        <div class="section-header">
+          <div>
+            <h3>Reservation book</h3>
+            <p>Seat, complete, cancel, or mark no-shows.</p>
+          </div>
+          <select class="search-bar" data-filter="reservation-status" style="max-width:190px">
+            ${["All", "confirmed", "seated", "completed", "cancelled", "no-show"].map((status) => `<option value="${status}" ${state.filters.reservationStatus === status ? "selected" : ""}>${status}</option>`).join("")}
+          </select>
+        </div>
+        <div class="list">
+          ${reservations
+            .map(
+              (reservation) => `
+                <div class="list-item">
+                  <div class="row">
+                    <div>
+                      <strong>${escapeHtml(reservation.customerName)}</strong>
+                      <p>${escapeHtml(reservation.tableName)} • ${reservation.partySize} guests • ${shortDate(reservation.reservationTime)}</p>
+                    </div>
+                    ${statusChip(reservation.status)}
+                  </div>
+                  <p>${escapeHtml(reservation.customerPhone || "No phone")} • ${escapeHtml(reservation.notes || "No notes")}</p>
+                  <div class="toolbar">
+                    ${["confirmed", "seated", "completed", "cancelled", "no-show"]
+                      .filter((status) => status !== reservation.status)
+                      .map((status) => `<button class="btn btn-secondary btn-sm" data-action="reservation-status" data-id="${reservation.id}" data-status="${status}">${status}</button>`)
+                      .join("")}
+                  </div>
+                </div>
+              `
+            )
+            .join("") || '<div class="empty-state">No reservations match this filter.</div>'}
+        </div>
+      </article>
+      <aside class="card card-pad">
+        <div class="section-header">
+          <div>
+            <h3>Book a table</h3>
+            <p>Capacity is validated against table seats.</p>
+          </div>
+        </div>
+        <form class="stack" data-form="reservation">
+          <div class="field"><label>Guest name</label><input name="customerName" required /></div>
+          <div class="field-grid">
+            <div class="field"><label>Phone</label><input name="customerPhone" type="tel" /></div>
+            <div class="field"><label>Party size</label><input name="partySize" type="number" min="1" value="2" required /></div>
+          </div>
+          <div class="field-grid">
+            <div class="field">
+              <label>Table</label>
+              <select name="tableId" required>
+                <option value="">Choose table</option>
+                ${state.data.tables.map((table) => `<option value="${table.id}">${escapeHtml(table.name)} • ${table.seats} seats</option>`).join("")}
+              </select>
+            </div>
+            <div class="field"><label>Reservation time</label><input name="reservationTime" type="datetime-local" required /></div>
+          </div>
+          <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+          <button class="btn btn-primary" type="submit">${icons.plus} Create Reservation</button>
+        </form>
+      </aside>
+    </section>
+  `;
+}
+
+function renderStaff() {
+  const employees = (state.data.employees || []).filter((employee) =>
+    `${employee.fullName} ${employee.email} ${employee.role}`.toLowerCase().includes(state.filters.employeeSearch.trim().toLowerCase())
+  );
+  return `
+    <section class="screen-grid">
+      <article class="card card-pad">
+        <div class="section-header">
+          <div>
+            <h3>Team roster</h3>
+            <p>Employee profiles and active status.</p>
+          </div>
+          <input class="search-bar" type="search" placeholder="Search staff..." value="${escapeHtml(state.filters.employeeSearch)}" data-filter="employee-search" />
+        </div>
+        <div class="list">
+          ${employees
+            .map(
+              (employee) => `
+                <div class="list-item">
+                  <div class="row">
+                    <div>
+                      <strong>${escapeHtml(employee.fullName)}</strong>
+                      <p>${escapeHtml(employee.email)} • ${escapeHtml(employee.role)} • ${currentCurrency(employee.hourlyRate)}/hr</p>
+                    </div>
+                    ${statusChip(employee.isActive ? "active" : "inactive")}
+                  </div>
+                </div>
+              `
+            )
+            .join("")}
+        </div>
+      </article>
+      <aside class="card card-pad">
+        <div class="section-header">
+          <div>
+            <h3>Add employee</h3>
+            <p>Creates a login-ready staff profile.</p>
+          </div>
+        </div>
+        <form class="stack" data-form="employee">
+          <div class="field"><label>Full name</label><input name="fullName" required /></div>
+          <div class="field"><label>Email</label><input name="email" type="email" required /></div>
+          <div class="field-grid">
+            <div class="field"><label>Role</label><select name="role">${["manager", "chef", "waiter", "barista", "staff"].map((role) => `<option value="${role}">${role}</option>`).join("")}</select></div>
+            <div class="field"><label>Hourly rate</label><input name="hourlyRate" type="number" min="0" step="0.01" value="12" /></div>
+          </div>
+          <div class="field"><label>Initial password</label><input name="password" type="password" required /></div>
+          <button class="btn btn-primary" type="submit">${icons.plus} Add Employee</button>
+        </form>
+        <div class="section-header" style="margin-top:1.4rem">
+          <div>
+            <h3>Publish shift</h3>
+            <p>Attach a shift to an employee.</p>
+          </div>
+        </div>
+        <form class="stack" data-form="shift">
+          <div class="field"><label>Employee</label><select name="employeeId" required>${state.data.employees.map((employee) => `<option value="${employee.id}">${escapeHtml(employee.fullName)}</option>`).join("")}</select></div>
+          <div class="field-grid">
+            <div class="field"><label>Start</label><input name="startTime" type="datetime-local" required /></div>
+            <div class="field"><label>End</label><input name="endTime" type="datetime-local" required /></div>
+          </div>
+          <div class="field"><label>Role</label><input name="role" value="service" /></div>
+          <button class="btn btn-secondary" type="submit">Save Shift</button>
+        </form>
+      </aside>
+    </section>
+  `;
+}
+
+function renderPurchasing() {
+  const purchaseOrders = (state.data.purchaseOrders || []).filter(
+    (order) => state.filters.purchaseStatus === "All" || order.status === state.filters.purchaseStatus
+  );
+  return `
+    <section class="screen-grid">
+      <article class="card card-pad">
+        <div class="section-header">
+          <div>
+            <h3>Purchase orders</h3>
+            <p>Draft supplier orders and add inventory lines.</p>
+          </div>
+          <select class="search-bar" data-filter="purchase-status" style="max-width:170px">
+            ${["All", "draft", "sent", "received", "cancelled"].map((status) => `<option value="${status}" ${state.filters.purchaseStatus === status ? "selected" : ""}>${status}</option>`).join("")}
+          </select>
+        </div>
+        <div class="list">
+          ${purchaseOrders
+            .map(
+              (order) => `
+                <div class="list-item">
+                  <div class="row">
+                    <div>
+                      <strong>${escapeHtml(order.orderNumber)}</strong>
+                      <p>${escapeHtml(order.supplierName)} • ${escapeHtml(order.employeeName)} • ${shortDate(order.createdAt)}</p>
+                    </div>
+                    ${statusChip(order.status)}
+                  </div>
+                  <div class="row">
+                    <strong>${currentCurrency(order.totalAmount)}</strong>
+                    <button class="btn btn-secondary btn-sm" data-action="open-po-item-modal" data-id="${order.id}">Add item</button>
+                  </div>
+                </div>
+              `
+            )
+            .join("") || '<div class="empty-state">No purchase orders yet.</div>'}
+        </div>
+      </article>
+      <aside class="card card-pad">
+        <div class="section-header">
+          <div>
+            <h3>New purchase order</h3>
+            <p>Choose a supplier and owner.</p>
+          </div>
+        </div>
+        <form class="stack" data-form="purchase-order">
+          <div class="field"><label>Supplier</label><select name="supplierId" required>${state.data.suppliers.map((supplier) => `<option value="${supplier.id}">${escapeHtml(supplier.name)}</option>`).join("")}</select></div>
+          <div class="field"><label>Employee</label><select name="employeeId" required>${state.data.employees.map((employee) => `<option value="${employee.id}">${escapeHtml(employee.fullName)}</option>`).join("")}</select></div>
+          <div class="field-grid">
+            <div class="field"><label>Status</label><select name="status">${["draft", "sent"].map((status) => `<option value="${status}">${status}</option>`).join("")}</select></div>
+            <div class="field"><label>Expected delivery</label><input name="expectedDelivery" type="date" /></div>
+          </div>
+          <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+          <button class="btn btn-primary" type="submit">${icons.plus} Create PO</button>
+        </form>
+        <div class="section-header" style="margin-top:1.4rem">
+          <div>
+            <h3>Suppliers</h3>
+            <p>${state.data.suppliers.length} active supplier records.</p>
+          </div>
+        </div>
+        <div class="list">${state.data.suppliers.map((supplier) => `<div class="list-item"><strong>${escapeHtml(supplier.name)}</strong><p>${escapeHtml(supplier.contactName || "No contact")} • ${escapeHtml(supplier.paymentTerms)}</p></div>`).join("")}</div>
+      </aside>
+    </section>
+  `;
+}
+
+function renderReports() {
+  const settings = state.data.settings;
+  return `
+    <section class="stat-grid">
+      <article class="stat-card"><div class="muted-label">Unread alerts</div><div class="value">${state.data.dashboard.stats.unreadAlerts}</div></article>
+      <article class="stat-card"><div class="muted-label">Pending POs</div><div class="value">${state.data.dashboard.stats.pendingPurchaseOrders}</div></article>
+      <article class="stat-card"><div class="muted-label">Guests</div><div class="value">${state.data.dashboard.stats.guestCount}</div></article>
+      <article class="stat-card"><div class="muted-label">Tax rate</div><div class="value">${Math.round(Number(settings.taxRate) * 100)}%</div></article>
+    </section>
+    <section class="dashboard-grid">
+      <article class="card card-pad">
+        <div class="section-header">
+          <div>
+            <h3>Alerts</h3>
+            <p>Inventory and reservation notifications.</p>
+          </div>
+        </div>
+        <div class="list">
+          ${(state.data.notifications || []).slice(0, 12).map((notification) => `
+            <div class="list-item">
+              <div class="row">
+                <div><strong>${escapeHtml(notification.title)}</strong><p>${escapeHtml(notification.message)}</p></div>
+                ${statusChip(notification.isRead ? "read" : notification.priority)}
+              </div>
+              ${notification.isRead ? "" : `<button class="btn btn-secondary btn-sm" data-action="mark-notification-read" data-id="${notification.id}">Mark read</button>`}
+            </div>
+          `).join("") || '<div class="empty-state">No alerts yet.</div>'}
+        </div>
+      </article>
+      <div class="stack">
+        <article class="card card-pad">
+          <div class="section-header"><div><h3>Sales report</h3><p>Generate completed-order totals for a date range.</p></div></div>
+          <form class="stack" data-form="sales-report">
+            <div class="field-grid">
+              <div class="field"><label>From</label><input name="dateFrom" type="date" required /></div>
+              <div class="field"><label>To</label><input name="dateTo" type="date" required /></div>
+            </div>
+            <button class="btn btn-primary" type="submit">Generate Report</button>
+          </form>
+          ${state.report ? `<div class="list-item" style="margin-top:1rem"><strong>${currentCurrency(state.report.totalSales)}</strong><p>${state.report.totalOrders} orders • ${state.report.totalCustomers} customers • AOV ${currentCurrency(state.report.averageOrderValue)}</p></div>` : ""}
+        </article>
+        <article class="card card-pad">
+          <div class="section-header"><div><h3>Restaurant settings</h3><p>Branding, tax, and receipt defaults.</p></div></div>
+          <form class="stack" data-form="settings">
+            <div class="field-grid">
+              <div class="field"><label>Name</label><input name="name" value="${escapeHtml(settings.name)}" required /></div>
+              <div class="field"><label>Tagline</label><input name="tagline" value="${escapeHtml(settings.tagline)}" required /></div>
+            </div>
+            <div class="field"><label>Address</label><input name="address" value="${escapeHtml(settings.address || "")}" /></div>
+            <div class="field-grid">
+              <div class="field"><label>Tax rate</label><input name="taxRate" type="number" step="0.01" min="0" max="1" value="${escapeHtml(settings.taxRate)}" /></div>
+              <div class="field"><label>Service charge</label><input name="serviceCharge" type="number" step="0.01" min="0" max="1" value="${escapeHtml(settings.serviceCharge)}" /></div>
+            </div>
+            <button class="btn btn-secondary" type="submit">Save Settings</button>
+          </form>
+        </article>
+      </div>
+    </section>
+    <section class="card card-pad">
+      <div class="section-header"><div><h3>Audit log</h3><p>Recent data changes.</p></div></div>
+      <div class="list">
+        ${(state.data.auditLogs || []).slice(0, 10).map((log) => `<div class="list-item"><div class="row"><strong>${escapeHtml(log.action)} ${escapeHtml(log.entityType)}</strong><span class="muted-label">${shortDate(log.createdAt)}</span></div><p>${escapeHtml(log.employeeName || "System")} • record ${escapeHtml(log.entityId || "-")}</p></div>`).join("") || '<div class="empty-state">No audit entries yet.</div>'}
+      </div>
+    </section>
+  `;
+}
+
 function renderOrderActions(order) {
   const actions = [];
   if (order.status === "placed") {
@@ -1152,6 +1586,59 @@ function renderModal() {
     return;
   }
 
+  if (state.modal.type === "customer-form") {
+    const customer = state.modal.customer;
+    modalRoot.innerHTML = `
+      <div class="modal-backdrop" data-action="close-modal">
+        <div class="modal" data-modal-body>
+          <div class="section-header">
+            <div>
+              <h3>Edit guest</h3>
+              <p>Update saved contact details.</p>
+            </div>
+            <button class="btn btn-secondary btn-sm" data-action="close-modal">${icons.close}</button>
+          </div>
+          <form data-form="customer-edit" class="stack">
+            <input type="hidden" name="id" value="${customer.id}" />
+            <div class="field"><label>Name</label><input name="name" required value="${escapeHtml(customer.name)}" /></div>
+            <div class="field-grid">
+              <div class="field"><label>Phone</label><input name="phone" type="tel" value="${escapeHtml(customer.phone || "")}" /></div>
+              <div class="field"><label>Email</label><input name="email" type="email" value="${escapeHtml(customer.email || "")}" /></div>
+            </div>
+            <button class="btn btn-primary" type="submit">Save Guest</button>
+          </form>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  if (state.modal.type === "purchase-order-item") {
+    modalRoot.innerHTML = `
+      <div class="modal-backdrop" data-action="close-modal">
+        <div class="modal" data-modal-body>
+          <div class="section-header">
+            <div>
+              <h3>Add purchase item</h3>
+              <p>Attach a menu inventory item to this purchase order.</p>
+            </div>
+            <button class="btn btn-secondary btn-sm" data-action="close-modal">${icons.close}</button>
+          </div>
+          <form data-form="purchase-order-item" class="stack">
+            <input type="hidden" name="purchaseOrderId" value="${state.modal.purchaseOrderId}" />
+            <div class="field"><label>Item</label><select name="menuItemId" required>${state.data.menuItems.map((item) => `<option value="${item.id}">${escapeHtml(item.name)} • ${escapeHtml(item.category)}</option>`).join("")}</select></div>
+            <div class="field-grid">
+              <div class="field"><label>Quantity</label><input name="quantity" type="number" min="1" value="10" required /></div>
+              <div class="field"><label>Unit cost</label><input name="unitCost" type="number" min="0" step="0.01" value="0" required /></div>
+            </div>
+            <button class="btn btn-primary" type="submit">${icons.plus} Add Line</button>
+          </form>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
   if (state.modal.type === "receipt") {
     const order = state.modal.order;
     modalRoot.innerHTML = `
@@ -1168,8 +1655,8 @@ function renderModal() {
             </div>
           </div>
           <div class="receipt" id="receipt-content">
-            <h4>CafeMaster</h4>
-            <p>Phase One Operations Hub</p>
+            <h4>${escapeHtml(state.data.settings.name)}</h4>
+            <p>${escapeHtml(state.data.settings.tagline)}</p>
             <p>${escapeHtml(order.customerName || "Walk-in Guest")} • ${escapeHtml(order.tableName || order.orderType)}</p>
             <div style="margin:1rem 0">
               ${order.items
@@ -1200,6 +1687,7 @@ function applyScreenFilters() {
   applyMenuFilters();
   applyOrderFilters();
   applyInventoryFilters();
+  applyCustomerFilters();
 }
 
 function applyPosFilters() {
@@ -1229,6 +1717,13 @@ function applyOrderFilters() {
 function applyInventoryFilters() {
   const query = state.filters.inventorySearch.trim().toLowerCase();
   document.querySelectorAll("[data-inventory-row]").forEach((row) => {
+    row.classList.toggle("hidden", !row.dataset.search.includes(query));
+  });
+}
+
+function applyCustomerFilters() {
+  const query = state.filters.customerSearch.trim().toLowerCase();
+  document.querySelectorAll("[data-customer-row]").forEach((row) => {
     row.classList.toggle("hidden", !row.dataset.search.includes(query));
   });
 }
@@ -1466,6 +1961,33 @@ document.addEventListener("click", async (event) => {
       openModal({ type: "receipt", order });
       return;
     }
+    if (action === "edit-customer") {
+      const customer = state.data.customers.find((entry) => entry.id === Number(trigger.dataset.id));
+      openModal({ type: "customer-form", customer });
+      return;
+    }
+    if (action === "reservation-status") {
+      await request(`/api/reservations/${trigger.dataset.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ status: trigger.dataset.status })
+      });
+      showToast("Reservation updated.");
+      await loadBootstrap();
+      return;
+    }
+    if (action === "open-po-item-modal") {
+      openModal({ type: "purchase-order-item", purchaseOrderId: Number(trigger.dataset.id) });
+      return;
+    }
+    if (action === "mark-notification-read") {
+      await request(`/api/notifications/${trigger.dataset.id}/read`, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      showToast("Alert marked as read.", "info");
+      await loadBootstrap();
+      return;
+    }
     if (action === "print-receipt") {
       printReceipt();
     }
@@ -1497,6 +2019,14 @@ document.addEventListener("input", (event) => {
     state.filters.inventorySearch = event.target.value;
     applyInventoryFilters();
   }
+  if (event.target.matches('[data-filter="customer-search"]')) {
+    state.filters.customerSearch = event.target.value;
+    applyCustomerFilters();
+  }
+  if (event.target.matches('[data-filter="employee-search"]')) {
+    state.filters.employeeSearch = event.target.value;
+    render();
+  }
 });
 
 document.addEventListener("change", (event) => {
@@ -1513,6 +2043,14 @@ document.addEventListener("change", (event) => {
   if (event.target.matches('[data-filter="orders-status"]')) {
     state.filters.orderStatus = event.target.value;
     applyOrderFilters();
+  }
+  if (event.target.matches('[data-filter="reservation-status"]')) {
+    state.filters.reservationStatus = event.target.value;
+    render();
+  }
+  if (event.target.matches('[data-filter="purchase-status"]')) {
+    state.filters.purchaseStatus = event.target.value;
+    render();
   }
 });
 
@@ -1575,6 +2113,140 @@ document.addEventListener("submit", async (event) => {
       closeModal();
       showToast("Inventory updated.");
       await loadBootstrap();
+      return;
+    }
+    if (form.dataset.form === "customer" || form.dataset.form === "customer-edit") {
+      const formData = new FormData(form);
+      const payload = {
+        name: formData.get("name"),
+        phone: formData.get("phone"),
+        email: formData.get("email")
+      };
+      const id = formData.get("id");
+      if (id) {
+        await request(`/api/customers/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+        closeModal();
+        showToast("Guest updated.");
+      } else {
+        await request("/api/customers", { method: "POST", body: JSON.stringify(payload) });
+        form.reset();
+        showToast("Guest created.");
+      }
+      await loadBootstrap();
+      return;
+    }
+    if (form.dataset.form === "reservation") {
+      const formData = new FormData(form);
+      await request("/api/reservations", {
+        method: "POST",
+        body: JSON.stringify({
+          customerName: formData.get("customerName"),
+          customerPhone: formData.get("customerPhone"),
+          tableId: Number(formData.get("tableId")),
+          partySize: Number(formData.get("partySize")),
+          reservationTime: formData.get("reservationTime"),
+          notes: formData.get("notes")
+        })
+      });
+      form.reset();
+      showToast("Reservation created.");
+      await loadBootstrap();
+      return;
+    }
+    if (form.dataset.form === "employee") {
+      const formData = new FormData(form);
+      await request("/api/employees", {
+        method: "POST",
+        body: JSON.stringify({
+          fullName: formData.get("fullName"),
+          email: formData.get("email"),
+          role: formData.get("role"),
+          hourlyRate: Number(formData.get("hourlyRate")),
+          password: formData.get("password")
+        })
+      });
+      form.reset();
+      showToast("Employee added.");
+      await loadBootstrap();
+      return;
+    }
+    if (form.dataset.form === "shift") {
+      const formData = new FormData(form);
+      await request("/api/employee-shifts", {
+        method: "POST",
+        body: JSON.stringify({
+          employeeId: Number(formData.get("employeeId")),
+          startTime: formData.get("startTime"),
+          endTime: formData.get("endTime"),
+          role: formData.get("role")
+        })
+      });
+      form.reset();
+      showToast("Shift saved.");
+      await loadBootstrap();
+      return;
+    }
+    if (form.dataset.form === "purchase-order") {
+      const formData = new FormData(form);
+      await request("/api/purchase-orders", {
+        method: "POST",
+        body: JSON.stringify({
+          supplierId: Number(formData.get("supplierId")),
+          employeeId: Number(formData.get("employeeId")),
+          status: formData.get("status"),
+          expectedDelivery: formData.get("expectedDelivery"),
+          notes: formData.get("notes")
+        })
+      });
+      form.reset();
+      showToast("Purchase order created.");
+      await loadBootstrap();
+      return;
+    }
+    if (form.dataset.form === "purchase-order-item") {
+      const formData = new FormData(form);
+      const purchaseOrderId = Number(formData.get("purchaseOrderId"));
+      await request(`/api/purchase-orders/${purchaseOrderId}/items`, {
+        method: "POST",
+        body: JSON.stringify({
+          menuItemId: Number(formData.get("menuItemId")),
+          quantity: Number(formData.get("quantity")),
+          unitCost: Number(formData.get("unitCost"))
+        })
+      });
+      closeModal();
+      showToast("Purchase order line added.");
+      await loadBootstrap();
+      return;
+    }
+    if (form.dataset.form === "sales-report") {
+      const formData = new FormData(form);
+      const dateFrom = `${formData.get("dateFrom")}T00:00:00.000Z`;
+      const dateTo = `${formData.get("dateTo")}T23:59:59.999Z`;
+      const { report } = await request("/api/reports/sales", {
+        method: "POST",
+        body: JSON.stringify({ dateFrom, dateTo, reportType: "custom" })
+      });
+      state.report = report;
+      showToast("Report generated.", "info");
+      render();
+      return;
+    }
+    if (form.dataset.form === "settings") {
+      const formData = new FormData(form);
+      await request("/api/settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          name: formData.get("name"),
+          tagline: formData.get("tagline"),
+          address: formData.get("address"),
+          taxRate: Number(formData.get("taxRate")),
+          serviceCharge: Number(formData.get("serviceCharge"))
+        })
+      });
+      showToast("Settings saved.");
+      await loadBootstrap();
+      return;
     }
   } catch (error) {
     showToast(error.message, "error");

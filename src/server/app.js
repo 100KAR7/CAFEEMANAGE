@@ -78,6 +78,7 @@ async function handleApiRequest({ request, response, pathname, store, session, s
   const restockMatch = pathname.match(/^\/api\/menu\/(\d+)\/restock$/);
   const tableMatch = pathname.match(/^\/api\/tables\/(\d+)$/);
   const orderStatusMatch = pathname.match(/^\/api\/orders\/(\d+)\/status$/);
+  const customerMatch = pathname.match(/^\/api\/customers\/(\d+)$/);
   const reservationMatch = pathname.match(/^\/api\/reservations\/(\d+)$/);
   const purchaseOrderMatch = pathname.match(/^\/api\/purchase-orders\/(\d+)\/items$/);
   const notificationMatch = pathname.match(/^\/api\/notifications\/(\d+)\/read$/);
@@ -137,6 +138,17 @@ async function handleApiRequest({ request, response, pathname, store, session, s
 
   if (request.method === "GET" && pathname === "/api/dashboard") {
     sendJson(response, 200, store.getDashboard());
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/settings") {
+    sendJson(response, 200, { settings: store.getSettings() });
+    return;
+  }
+
+  if (request.method === "PUT" && pathname === "/api/settings") {
+    const payload = await parseJsonBody(request);
+    sendJson(response, 200, { settings: store.updateSettings(payload, session.employee.id) });
     return;
   }
 
@@ -206,6 +218,18 @@ async function handleApiRequest({ request, response, pathname, store, session, s
   // Customer endpoints
   if (request.method === "GET" && pathname === "/api/customers") {
     sendJson(response, 200, { customers: store.listCustomers() });
+    return;
+  }
+
+  if (request.method === "POST" && pathname === "/api/customers") {
+    const payload = await parseJsonBody(request);
+    sendJson(response, 201, { customer: store.createCustomer(payload, session.employee.id) });
+    return;
+  }
+
+  if (request.method === "PUT" && customerMatch) {
+    const payload = await parseJsonBody(request);
+    sendJson(response, 200, { customer: store.updateCustomer(Number(customerMatch[1]), payload, session.employee.id) });
     return;
   }
 
