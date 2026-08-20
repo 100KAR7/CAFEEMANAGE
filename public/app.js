@@ -47,7 +47,8 @@ const state = {
     ready: false,
     user: null,
     error: "",
-    expiresAt: null
+    expiresAt: null,
+    managerVerified: false
   },
   live: {
     timerId: null,
@@ -115,6 +116,10 @@ const screenMeta = {
     title: "Staff & Shifts",
     subtitle: "Manage employees and publish shift records."
   },
+  staffManagement: {
+    title: "Staff Management",
+    subtitle: "Manager access required for employee management and salary administration."
+  },
   purchasing: {
     title: "Purchasing",
     subtitle: "Track suppliers, draft purchase orders, and add order lines."
@@ -135,6 +140,7 @@ const navigation = [
   { id: "guests", label: "Guests", icon: icons.guests },
   { id: "reservations", label: "Reservations", icon: icons.calendar },
   { id: "staff", label: "Staff", icon: icons.staff },
+  { id: "staffManagement", label: "Staff Admin", icon: icons.staff },
   { id: "purchasing", label: "Purchasing", icon: icons.purchasing },
   { id: "reports", label: "Reports", icon: icons.reports }
 ];
@@ -269,6 +275,7 @@ async function restoreSession() {
     state.auth.ready = true;
     state.auth.user = null;
     state.auth.expiresAt = null;
+    state.auth.managerVerified = false;
     render();
     return false;
   }
@@ -290,7 +297,25 @@ async function restoreSession() {
   state.auth.user = payload.employee;
   state.auth.expiresAt = payload.expiresAt;
   state.auth.error = "";
+  state.auth.managerVerified = false;
   return true;
+}
+
+async function verifyManagerPassword(password) {
+  try {
+    const response = await request("/api/auth/manager-verify", {
+      method: "POST",
+      body: JSON.stringify({ password })
+    });
+    if (response.verified) {
+      state.auth.managerVerified = true;
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.error("Manager verification failed:", error);
+    return false;
+  }
 }
 
 function startLiveSync() {
@@ -612,6 +637,8 @@ function renderScreen() {
       return renderReservations();
     case "staff":
       return renderStaff();
+    case "staffManagement":
+      return renderStaffManagement();
     case "purchasing":
       return renderPurchasing();
     case "reports":
@@ -1350,6 +1377,93 @@ function renderStaff() {
           </div>
           <div class="field"><label>Role</label><input name="role" value="service" /></div>
           <button class="btn btn-secondary" type="submit">Save Shift</button>
+        </form>
+      </aside>
+    </section>
+  `;
+}
+
+function renderStaffManagement() {
+  if (!state.auth.managerVerified) {
+    return `
+      <section class="card card-pad" style="max-width:500px; margin:2rem auto;">
+        <div class="section-header">
+          <div>
+            <h3>Manager Verification Required</h3>
+            <p>Enter your manager password to access staff management.</p>
+          </div>
+        </div>
+        <form class="stack" data-form="manager-verify">
+          <div class="field"><label>Manager password</label><input name="password" type="password" required /></div>
+          <button class="btn btn-primary" type="submit">Verify Access</button>
+        </form>
+      </section>
+    `;
+  }
+
+  const employees = (state.data.employees || []).filter((employee) =>
+    `${employee.fullName} ${employee.email} ${employee.role}`.toLowerCase().includes(state.filters.employeeSearch.trim().toLowerCase())
+  );
+
+  return `
+    <section class="screen-grid">
+      <article class="card card-pad">
+        <div class="section-header">
+          <div>
+            <h3>Staff Management</h3>
+            <p>Full employee administration including salary management.</p>
+          </div>
+          <input class="search-bar" type="search" placeholder="Search staff..." value="${escapeHtml(state.filters.employeeSearch)}" data-filter="employee-search" />
+        </div>
+        <div class="list-table">
+          <div class="table-head">
+            <div>Name</div>
+            <div>Email</div>
+            <div>Role</div>
+            <div>Hourly Rate</div>
+            <div>Salary</div>
+            <div>Status</div>
+            <div>Actions</div>
+          </div>
+          ${employees
+            .map(
+              (employee) => `
+                <div class="table-row">
+                  <div><strong>${escapeHtml(employee.fullName)}</strong></div>
+                  <div>${escapeHtml(employee.email)}</div>
+                  <div>${escapeHtml(employee.role)}</div>
+                  <div>${currentCurrency(employee.hourlyRate)}/hr</div>
+                  <div>${currentCurrency(employee.salary)}/mo</div>
+                  <div>${statusChip(employee.isActive ? "active" : "inactive")}</div>
+                  <div>
+                    <button class="btn btn-secondary btn-sm" data-action="edit-employee" data-id="${employee.id}">Edit</button>
+                  </div>
+                </div>
+              `
+            )
+            .join("") || '<div class="empty-state">No employees found.</div>'}
+        </div>
+      </article>
+      <aside class="card card-pad">
+        <div class="section-header">
+          <div>
+            <h3>Add Employee</h3>
+            <p>Create new staff with salary information.</p>
+          </div>
+        </div>
+        <form class="stack" data-form="employee-full">
+          <div class="field"><label>Full name</label><input name="fullName" required /></div>
+          <div class="field"><label>Email</label><input name="email" type="email" required /></div>
+          <div class="field-grid">
+            <div class="field"><label>Role</label><select name="role">${["manager", "chef", "waiter", "barista", "staff"].map((role) => `<option value="${role}">${role}</option>`).join("")}</select></div>
+            <div class="field"><label>Status</label><select name="isActive"><option value="true">Active</option><option value="false">Inactive</option></select></div>
+          </div>
+          <div class="field-grid">
+            <div class="field"><label>Hourly rate</label><input name="hourlyRate" type="number" min="0" step="0.01" value="12" /></div>
+            <div class="field"><label>Monthly salary</label><input name="salary" type="number" min="0" step="0.01" value="0" /></div>
+          </div>
+          <div class="field"><label>Initial password</label><input name="password" type="password" required /></div>
+          <button class="btn btn-primary" type="submit">${icons.plus} Add Employee</button>
         </form>
       </aside>
     </section>
@@ -2167,6 +2281,36 @@ document.addEventListener("submit", async (event) => {
       });
       form.reset();
       showToast("Employee added.");
+      await loadBootstrap();
+      return;
+    }
+    if (form.dataset.form === "manager-verify") {
+      const formData = new FormData(form);
+      const verified = await verifyManagerPassword(formData.get("password"));
+      if (verified) {
+        showToast("Manager access verified.");
+        render();
+      } else {
+        showToast("Invalid manager password.", "error");
+      }
+      return;
+    }
+    if (form.dataset.form === "employee-full") {
+      const formData = new FormData(form);
+      await request("/api/employees", {
+        method: "POST",
+        body: JSON.stringify({
+          fullName: formData.get("fullName"),
+          email: formData.get("email"),
+          role: formData.get("role"),
+          hourlyRate: Number(formData.get("hourlyRate")),
+          salary: Number(formData.get("salary")),
+          password: formData.get("password"),
+          isActive: formData.get("isActive") === "true"
+        })
+      });
+      form.reset();
+      showToast("Employee added with salary info.");
       await loadBootstrap();
       return;
     }

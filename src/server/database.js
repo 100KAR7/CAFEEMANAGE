@@ -125,6 +125,7 @@ function applySchemaMigrations(db) {
   addColumnIfMissing(db, "customers", "updated_at", "TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.000Z'");
 
   addColumnIfMissing(db, "employees", "hourly_rate", "REAL DEFAULT 0");
+  addColumnIfMissing(db, "employees", "salary", "REAL DEFAULT 0");
 
   addColumnIfMissing(db, "orders", "employee_id", "INTEGER");
 
@@ -190,6 +191,8 @@ function createStore(dbFilePath) {
     fullName: row.full_name,
     email: row.email,
     role: row.role,
+    hourlyRate: row.hourly_rate,
+    salary: row.salary,
     isActive: Boolean(row.is_active),
     lastLoginAt: row.last_login_at,
     createdAt: row.created_at,
@@ -1141,7 +1144,7 @@ function createStore(dbFilePath) {
   // Employee Management
   function listEmployees() {
     return all(
-      `SELECT id, full_name, email, role, hourly_rate, is_active, last_login_at, created_at, updated_at
+      `SELECT id, full_name, email, role, hourly_rate, salary, is_active, last_login_at, created_at, updated_at
        FROM employees
        ORDER BY full_name`
     ).map((row) => ({
@@ -1150,6 +1153,7 @@ function createStore(dbFilePath) {
       email: row.email,
       role: row.role,
       hourlyRate: row.hourly_rate,
+      salary: row.salary,
       isActive: Boolean(row.is_active),
       lastLoginAt: row.last_login_at,
       createdAt: row.created_at,
@@ -1163,6 +1167,7 @@ function createStore(dbFilePath) {
       email: normalizeEmail(payload.email),
       role: String(payload.role || "staff").trim(),
       hourlyRate: Number(payload.hourlyRate || 0),
+      salary: Number(payload.salary || 0),
       password: String(payload.password || "")
     };
 
@@ -1177,13 +1182,14 @@ function createStore(dbFilePath) {
     }
 
     run(
-      `INSERT INTO employees (full_name, email, role, password_hash, hourly_rate, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO employees (full_name, email, role, password_hash, hourly_rate, salary, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       record.fullName,
       record.email,
       record.role,
       hashPassword(record.password),
       record.hourlyRate,
+      record.salary,
       1,
       nowIso(),
       nowIso()
@@ -1203,6 +1209,7 @@ function createStore(dbFilePath) {
       email: payload.email !== undefined ? normalizeEmail(payload.email) : existing.email,
       role: String(payload.role ?? existing.role).trim(),
       hourlyRate: Number(payload.hourlyRate ?? existing.hourlyRate),
+      salary: Number(payload.salary ?? existing.salary),
       isActive: payload.isActive !== undefined ? Boolean(payload.isActive) : existing.isActive
     };
 
@@ -1215,12 +1222,13 @@ function createStore(dbFilePath) {
 
     run(
       `UPDATE employees
-       SET full_name = ?, email = ?, role = ?, hourly_rate = ?, is_active = ?, updated_at = ?
+       SET full_name = ?, email = ?, role = ?, hourly_rate = ?, salary = ?, is_active = ?, updated_at = ?
        WHERE id = ?`,
       record.fullName,
       record.email,
       record.role,
       record.hourlyRate,
+      record.salary,
       record.isActive ? 1 : 0,
       nowIso(),
       Number(id)

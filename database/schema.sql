@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS employees (
   role TEXT NOT NULL DEFAULT 'staff',
   password_hash TEXT NOT NULL,
   hourly_rate REAL DEFAULT 0,
+  salary REAL DEFAULT 0,
   is_active INTEGER NOT NULL DEFAULT 1,
   last_login_at TEXT,
   created_at TEXT NOT NULL,

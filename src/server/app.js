@@ -124,6 +124,19 @@ async function handleApiRequest({ request, response, pathname, store, session, s
     return;
   }
 
+  if (request.method === "POST" && pathname === "/api/auth/manager-verify") {
+    if (!session || session.employee.role !== "manager") {
+      throw createHttpError(403, "Manager access required.");
+    }
+    const payload = await parseJsonBody(request);
+    const employee = store.getEmployeeByEmail(session.employee.email);
+    if (!employee || !store.verifyPassword(payload.password, employee.passwordHash)) {
+      throw createHttpError(401, "Invalid manager password.");
+    }
+    sendJson(response, 200, { verified: true });
+    return;
+  }
+
   if (!session) {
     throw createHttpError(401, "Employee login required.");
   }
