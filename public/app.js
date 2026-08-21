@@ -409,7 +409,7 @@ function upsertCartItem(menuItem) {
 }
 
 function adjustCartItem(id, delta) {
-  const item = state.cart.find((entry) => entry.id === Number(id));
+  const item = state.cart.find((entry) => String(entry.id) === String(id));
   if (!item) {
     return;
   }
@@ -419,7 +419,7 @@ function adjustCartItem(id, delta) {
     showToast(`Stock limit reached for ${item.name}.`, "error");
   }
   if (item.qty <= 0) {
-    state.cart = state.cart.filter((entry) => entry.id !== Number(id));
+    state.cart = state.cart.filter((entry) => String(entry.id) !== String(id));
   }
   render();
 }
@@ -497,7 +497,7 @@ function renderLogin() {
             </div>
             <div class="auth-feature">
               <strong>Persistent records</strong>
-              <span>Orders, stock, menus, and table updates are stored in SQLite.</span>
+              <span>Orders, stock, menus, and table updates are stored in MongoDB.</span>
             </div>
           </div>
         </article>
@@ -1006,7 +1006,7 @@ function renderPos() {
             <div class="summary-row"><span class="muted-label">Tax</span><strong data-cart-total="tax">${currentCurrency(totals.tax)}</strong></div>
             <div class="summary-row" style="margin-top:0.55rem"><span>Total</span><strong data-cart-total="total">${currentCurrency(totals.total)}</strong></div>
           </div>
-          <button class="btn btn-primary" type="submit">${icons.plus} Save Order To SQLite</button>
+          <button class="btn btn-primary" type="submit">${icons.plus} Complete Order</button>
         </form>
       </aside>
     </section>
@@ -1638,7 +1638,7 @@ function renderModal() {
           <div class="section-header">
             <div>
               <h3>${item ? "Edit menu item" : "Add menu item"}</h3>
-              <p>Changes are saved directly into SQLite.</p>
+              <p>Changes are saved directly into MongoDB.</p>
             </div>
             <button class="btn btn-secondary btn-sm" data-action="close-modal">${icons.close}</button>
           </div>
@@ -1895,7 +1895,7 @@ async function submitCheckout() {
   }
   const payload = {
     orderType: state.pos.orderType,
-    tableId: state.pos.orderType === "dine-in" ? Number(state.pos.tableId) : null,
+    tableId: state.pos.orderType === "dine-in" ? (state.pos.tableId || null) : null,
     discount: Number(state.pos.discount || 0),
     paymentMethod: state.pos.paymentMethod,
     paymentStatus: state.pos.paymentMethod ? "paid" : "pending",
@@ -1930,7 +1930,7 @@ async function submitCheckout() {
 }
 
 async function toggleMenuItem(id, available) {
-  const item = state.data.menuItems.find((entry) => entry.id === Number(id));
+  const item = state.data.menuItems.find((entry) => String(entry.id) === String(id));
   if (!item) {
     return;
   }
@@ -2015,7 +2015,7 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (action === "cart-add") {
-      const item = state.data.menuItems.find((entry) => entry.id === Number(trigger.dataset.id));
+      const item = state.data.menuItems.find((entry) => String(entry.id) === String(trigger.dataset.id));
       if (item) {
         upsertCartItem(item);
       }
@@ -2026,7 +2026,7 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (action === "cart-remove") {
-      state.cart = state.cart.filter((item) => item.id !== Number(trigger.dataset.id));
+      state.cart = state.cart.filter((item) => String(item.id) !== String(trigger.dataset.id));
       render();
       return;
     }
@@ -2048,7 +2048,7 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (action === "edit-menu-item") {
-      const item = state.data.menuItems.find((entry) => entry.id === Number(trigger.dataset.id));
+      const item = state.data.menuItems.find((entry) => String(entry.id) === String(trigger.dataset.id));
       openModal({ type: "menu-form", item });
       return;
     }
@@ -2057,7 +2057,7 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (action === "open-restock-modal") {
-      const item = state.data.menuItems.find((entry) => entry.id === Number(trigger.dataset.id));
+      const item = state.data.menuItems.find((entry) => String(entry.id) === String(trigger.dataset.id));
       openModal({ type: "restock", item });
       return;
     }
@@ -2071,12 +2071,12 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (action === "view-receipt") {
-      const order = state.data.orders.find((entry) => entry.id === Number(trigger.dataset.id));
+      const order = state.data.orders.find((entry) => String(entry.id) === String(trigger.dataset.id));
       openModal({ type: "receipt", order });
       return;
     }
     if (action === "edit-customer") {
-      const customer = state.data.customers.find((entry) => entry.id === Number(trigger.dataset.id));
+      const customer = state.data.customers.find((entry) => String(entry.id) === String(trigger.dataset.id));
       openModal({ type: "customer-form", customer });
       return;
     }
@@ -2090,7 +2090,7 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (action === "open-po-item-modal") {
-      openModal({ type: "purchase-order-item", purchaseOrderId: Number(trigger.dataset.id) });
+      openModal({ type: "purchase-order-item", purchaseOrderId: trigger.dataset.id });
       return;
     }
     if (action === "mark-notification-read") {
@@ -2256,7 +2256,7 @@ document.addEventListener("submit", async (event) => {
         body: JSON.stringify({
           customerName: formData.get("customerName"),
           customerPhone: formData.get("customerPhone"),
-          tableId: Number(formData.get("tableId")),
+          tableId: formData.get("tableId") || null,
           partySize: Number(formData.get("partySize")),
           reservationTime: formData.get("reservationTime"),
           notes: formData.get("notes")
@@ -2319,7 +2319,7 @@ document.addEventListener("submit", async (event) => {
       await request("/api/employee-shifts", {
         method: "POST",
         body: JSON.stringify({
-          employeeId: Number(formData.get("employeeId")),
+          employeeId: formData.get("employeeId"),
           startTime: formData.get("startTime"),
           endTime: formData.get("endTime"),
           role: formData.get("role")
@@ -2335,8 +2335,8 @@ document.addEventListener("submit", async (event) => {
       await request("/api/purchase-orders", {
         method: "POST",
         body: JSON.stringify({
-          supplierId: Number(formData.get("supplierId")),
-          employeeId: Number(formData.get("employeeId")),
+          supplierId: formData.get("supplierId"),
+          employeeId: formData.get("employeeId"),
           status: formData.get("status"),
           expectedDelivery: formData.get("expectedDelivery"),
           notes: formData.get("notes")
@@ -2349,11 +2349,11 @@ document.addEventListener("submit", async (event) => {
     }
     if (form.dataset.form === "purchase-order-item") {
       const formData = new FormData(form);
-      const purchaseOrderId = Number(formData.get("purchaseOrderId"));
+      const purchaseOrderId = formData.get("purchaseOrderId");
       await request(`/api/purchase-orders/${purchaseOrderId}/items`, {
         method: "POST",
         body: JSON.stringify({
-          menuItemId: Number(formData.get("menuItemId")),
+          menuItemId: formData.get("menuItemId"),
           quantity: Number(formData.get("quantity")),
           unitCost: Number(formData.get("unitCost"))
         })
