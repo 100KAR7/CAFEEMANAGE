@@ -1,141 +1,528 @@
-# CafeMaster - Restaurant Operations OS
+# ☕ CafeMaster — Restaurant Operations OS
 
-CafeMaster is a comprehensive restaurant management system with Phase 2 features:
+> A modern, full-stack Restaurant Operations Management System for managing POS, tables, menu, inventory, customers, reservations, purchasing, staff, reporting, and restaurant operations from a single platform.
 
-## Current Features (Phase 2)
-- A responsive operations dashboard
-- POS order creation with tax and service charge calculation
-- Table status management
-- Menu management with inventory tracking
-- Order history with status updates
-- Guest CRM and loyalty tracking
-- Reservations system
-- Staff & Shifts management
-- Purchasing & Supplier management
-- Reports & Control with audit logs
-- Restaurant settings management
-- Manager authentication for sensitive operations
-- Employee salary management
+**Status:** 🚧 Active Development
+**Current Phase:** Phase 2 — Operations & Management
+**Next Phase:** Phase 3 — Intelligence & Integrations
 
-## Phase 3 Planning
+---
 
-### Planned Features
-1. **Advanced Analytics & Business Intelligence**
-   - Revenue trends and peak hours analysis
-   - Customer lifetime value (CLV) calculation
-   - Menu performance analytics
-   - Profit margin analysis
+## 🚀 Overview
 
-2. **Enhanced Inventory Management**
-   - Smart stock prediction and AI-powered demand forecasting
-   - Recipe & cost management
-   - Waste tracking and analysis
+**CafeMaster** is a centralized operating system designed for cafes and restaurants.
 
-3. **Advanced Staff Management**
-   - Performance analytics and productivity metrics
-   - Payroll integration with overtime tracking
-   - Tip reporting and distribution
+It brings together orders, tables, inventory, customers, reservations, employees, purchasing, reports, and operational controls into one unified platform.
 
-4. **Customer Relationship Management (CRM)**
-   - Advanced guest profiles with preference tracking
-   - Marketing campaign targeting
-   - Communication system
+```text
+                    ☕ CAFEMASTER
+                         │
+        ┌────────────────┼────────────────┐
+        │                │                │
+       POS           Operations          CRM
+        │                │                │
+   ┌────┴────┐      ┌────┴────┐      ┌────┴────┐
+ Orders   Billing   Tables  Staff   Guests  Loyalty
+        │                │                │
+        └────────────────┼────────────────┘
+                         │
+                    Management
+                         │
+              ┌──────────┼──────────┐
+              │          │          │
+          Inventory   Purchasing  Reports
+              │          │          │
+              └──────────┼──────────┘
+                         │
+                    Future Layer
+                         │
+          AI • Analytics • Integrations
+```
 
-5. **Multi-Location Support**
-   - Centralized inventory across locations
-   - Unified customer database
-   - Location-specific pricing
+---
 
-6. **Advanced POS Features**
-   - Course sequencing and KDS integration
-   - Complex modifiers and allergen alerts
-   - Split bills and tip suggestions
+## ✨ Current Features — Phase 2
 
-7. **Integration Capabilities**
-   - Payment gateway integration
-   - Accounting software integration
-   - Third-party platform connections
+### 📊 Operations Dashboard
 
-8. **Mobile & Offline Support**
-   - Staff mobile applications
-   - Customer-facing ordering app
-   - Offline mode support
+* Responsive operations dashboard
+* Revenue monitoring
+* Active order monitoring
+* Table occupancy overview
+* Inventory alerts
+* Operational metrics
 
-9. **Security & Compliance**
-   - Two-factor authentication
-   - Role-based access control
-   - Regulatory compliance tools
+### 🧾 POS & Order Management
 
-## Run locally
+* Create orders
+* Add multiple menu items
+* Tax calculation
+* Service charge calculation
+* Order status management
+* Order history
+* Order item tracking
+
+### 🪑 Table Management
+
+* Table availability tracking
+* Occupied table management
+* Reserved table management
+* Table status updates
+* Visual table management
+
+### 🍔 Menu Management
+
+* Create menu items
+* Edit menu items
+* Delete menu items
+* Category management
+* Pricing management
+* Item availability
+* Inventory-linked menu items
+
+### 📦 Inventory Management
+
+* Inventory tracking
+* Stock movement tracking
+* Low-stock monitoring
+* Inventory history
+* Menu-to-inventory tracking
+
+### 👥 Guest CRM & Loyalty
+
+* Guest profiles
+* Customer order history
+* Loyalty tracking
+* Customer activity tracking
+
+### 📅 Reservations
+
+* Create reservations
+* Manage reservations
+* Guest information
+* Table allocation
+* Reservation status
+
+### 👨‍💼 Staff & Shift Management
+
+* Employee management
+* Employee creation and editing
+* Active/inactive employee status
+* Salary management
+* Staff information
+* Shift management
+
+### 🛒 Purchasing & Suppliers
+
+* Supplier management
+* Purchasing records
+* Stock procurement
+* Supplier information
+* Purchase tracking
+
+### 📈 Reports & Control
+
+* Operational reports
+* Sales information
+* Audit logs
+* Management controls
+
+### 🔐 Security
+
+* Manager authentication
+* Protected sensitive operations
+* Staff management authorization
+
+---
+
+# 🧠 Phase 3 — Intelligence & Scale
+
+Phase 3 will transform CafeMaster from a management platform into an **intelligent restaurant operating system**.
+
+## 📊 Advanced Analytics & Business Intelligence
+
+* Revenue trends
+* Peak-hour analysis
+* Customer Lifetime Value (CLV)
+* Menu performance analytics
+* Profit margin analysis
+* Business intelligence dashboards
+
+## 🤖 AI-Powered Inventory
+
+* Smart stock prediction
+* AI-powered demand forecasting
+* Automated purchasing recommendations
+* Recipe and ingredient cost management
+* Waste tracking
+* Waste analysis
+
+## 👨‍💼 Advanced Staff Management
+
+* Employee performance analytics
+* Productivity metrics
+* Payroll integration
+* Overtime tracking
+* Tip reporting
+* Tip distribution
+
+## ❤️ Advanced CRM
+
+* Advanced customer profiles
+* Preference tracking
+* Customer segmentation
+* Marketing campaign targeting
+* Automated communication
+
+## 🏢 Multi-Location Support
+
+* Multiple restaurant branches
+* Centralized inventory
+* Unified customer database
+* Location-specific pricing
+* Branch-level analytics
+
+## 🧾 Advanced POS
+
+* Course sequencing
+* Kitchen Display System (KDS) integration
+* Complex modifiers
+* Allergen alerts
+* Split bills
+* Tip suggestions
+
+## 🔌 Integrations
+
+Planned integrations include:
+
+* Payment gateways
+* Accounting software
+* Delivery platforms
+* Messaging services
+* Third-party restaurant platforms
+
+## 📱 Mobile & Offline Support
+
+* Staff mobile application
+* Customer ordering application
+* QR-based ordering
+* Offline POS mode
+* Automatic synchronization
+
+## 🔒 Security & Compliance
+
+* Two-factor authentication
+* Role-based access control
+* Advanced permissions
+* Audit trails
+* Regulatory compliance tools
+
+---
+
+# 🛠️ Technology Stack
+
+| Layer              | Technology             |
+| ------------------ | ---------------------- |
+| Frontend           | HTML, CSS, JavaScript  |
+| Backend            | Node.js                |
+| API                | REST API               |
+| Database — Current | SQLite                 |
+| Database — Planned | MongoDB                |
+| Authentication     | Manager Authentication |
+| Testing            | Node.js Test Runner    |
+| Package Manager    | npm                    |
+| Version Control    | Git + GitHub           |
+
+---
+
+# 🗄️ Database
+
+## Current Database
+
+CafeMaster currently uses **SQLite**.
+
+The database stores:
+
+* Tables
+* Menu items
+* Customers
+* Orders
+* Order items
+* Inventory movements
+* Employees
+* Reservations
+* Suppliers
+* Purchasing records
+
+## 🔄 MongoDB Migration
+
+The project is transitioning from:
+
+```text
+SQLite
+   ↓
+MongoDB
+```
+
+The migration will focus on:
+
+* Data preservation
+* Database schema redesign
+* API compatibility
+* Query optimization
+* Indexing
+* Scalable data access
+* Improved future multi-location support
+
+---
+
+# 📁 Project Structure
+
+```text
+CafeMaster/
+│
+├── cafe.html
+│
+├── database/
+│   └── schema.sql
+│
+├── data/
+│   └── cafemaster.sqlite
+│
+├── public/
+│   ├── app.js
+│   ├── index.html
+│   ├── styles.css
+│   │
+│   └── assets/
+│       └── cafemaster-logo.svg
+│
+├── src/
+│   └── server/
+│       ├── app.js
+│       ├── data.js
+│       └── database.js
+│
+├── tests/
+│   └── smoke.test.js
+│
+├── package.json
+│
+└── server.js
+```
+
+---
+
+# ⚡ Getting Started
+
+## 1. Clone the Repository
+
+```bash
+git clone https://github.com/YOUR_USERNAME/CafeMaster.git
+cd CafeMaster
+```
+
+## 2. Install Dependencies
+
+```bash
+npm install
+```
+
+## 3. Start the Application
 
 ```bash
 npm start
 ```
 
-Then open `http://localhost:3000`.
-
-## Default employee login
-
-- Email: `admin@cafemaster.local`
-- Password: `Cafe@12345`
-
-Change the seeded credentials before a real deployment.
-
-## New Phase 2 Features
-
-### Manager Authentication
-- Manager password verification required for staff management
-- Enhanced security for sensitive operations
-- Separate staff management panel with salary administration
-
-### Employee Management
-- Added salary field to employee records
-- Enhanced employee creation and editing
-- Staff management table with comprehensive information
-- Active/inactive status management
-
-### UI Improvements
-- Fixed alignment issues in table layouts
-- Improved responsive design for staff management
-- Enhanced table column structure for better data display
-
-## Project structure
+Open the application at:
 
 ```text
-.
-|-- cafe.html
-|-- database/
-|   `-- schema.sql
-|-- data/
-|   `-- cafemaster.sqlite
-|-- public/
-|   |-- app.js
-|   |-- index.html
-|   |-- styles.css
-|   `-- assets/
-|       `-- cafemaster-logo.svg
-|-- src/
-|   `-- server/
-|       |-- app.js
-|       |-- data.js
-|       `-- database.js
-|-- tests/
-|   `-- smoke.test.js
-|-- package.json
-`-- server.js
+http://localhost:3000
 ```
 
-## Data stored in SQLite
+---
 
-- Tables
-- Menu items
-- Customers
-- Orders
-- Order items
-- Inventory movements
+# 🧪 Development
 
-## Available scripts
+Start the application in watch/development mode:
 
-- `npm start` starts the app
-- `npm run dev` starts the app in watch mode
-- `npm test` runs the smoke test suite
+```bash
+npm run dev
+```
+
+Run the test suite:
+
+```bash
+npm test
+```
+
+---
+
+# 🔐 Default Employee Login
+
+```text
+Email: admin@cafemaster.local
+Password: Cafe@12345
+```
+
+> ⚠️ **Important:** These credentials are for development purposes only. Change the seeded credentials before deploying the application publicly.
+
+---
+
+# 🗺️ Development Roadmap
+
+```text
+Phase 1
+████████████████████  Complete
+
+Core Restaurant Management
+├── POS
+├── Menu
+├── Tables
+├── Orders
+└── Basic Inventory
+
+
+Phase 2
+████████████████████  Complete
+
+Operations Management
+├── CRM
+├── Reservations
+├── Staff
+├── Salary Management
+├── Purchasing
+├── Suppliers
+├── Reports
+├── Audit Logs
+└── Manager Authentication
+
+
+Phase 3
+██████░░░░░░░░░░░░░░  In Progress
+
+Intelligence & Scale
+├── MongoDB Migration
+├── Advanced Analytics
+├── AI Forecasting
+├── Recipe Management
+├── Waste Tracking
+├── Advanced CRM
+├── Multi-Location
+├── Advanced POS
+├── Payment Integrations
+├── Mobile Applications
+└── Offline Mode
+```
+
+---
+
+# 📌 Project Status
+
+| Module                 | Status         |
+| ---------------------- | -------------- |
+| Dashboard              | ✅ Complete     |
+| POS                    | ✅ Complete     |
+| Orders                 | ✅ Complete     |
+| Tables                 | ✅ Complete     |
+| Menu                   | ✅ Complete     |
+| Inventory              | ✅ Complete     |
+| CRM                    | ✅ Complete     |
+| Reservations           | ✅ Complete     |
+| Staff Management       | ✅ Complete     |
+| Salary Management      | ✅ Complete     |
+| Purchasing             | ✅ Complete     |
+| Suppliers              | ✅ Complete     |
+| Reports                | ✅ Complete     |
+| Audit Logs             | ✅ Complete     |
+| Manager Authentication | ✅ Complete     |
+| MongoDB Migration      | 🚧 In Progress |
+| Advanced Analytics     | 🔜 Planned     |
+| AI Demand Forecasting  | 🔜 Planned     |
+| Recipe Management      | 🔜 Planned     |
+| Waste Tracking         | 🔜 Planned     |
+| Multi-Location         | 🔜 Planned     |
+| Advanced POS           | 🔜 Planned     |
+| Payment Integration    | 🔜 Planned     |
+| Mobile App             | 🔜 Planned     |
+| Offline Mode           | 🔜 Planned     |
+
+---
+
+# 🔮 Long-Term Vision
+
+CafeMaster aims to evolve from a traditional restaurant management application into a complete **Restaurant Operations OS**.
+
+```text
+                 CAFEMASTER
+                     │
+        ┌────────────┼────────────┐
+        ↓            ↓            ↓
+     OPERATE      ANALYZE      OPTIMIZE
+        │            │            │
+       POS          BI           AI
+     Inventory    Reports     Forecasting
+      Staff       Metrics     Automation
+      CRM          CLV        Recommendations
+        │            │            │
+        └────────────┼────────────┘
+                     ↓
+              RESTAURANT OS
+```
+
+The long-term goal is to provide restaurant owners and managers with **data-driven insights, intelligent automation, predictive analytics, and centralized operational control**.
+
+---
+
+# 🤝 Contributing
+
+Contributions, ideas, bug reports, and feature suggestions are welcome.
+
+### 1. Fork the repository
+
+### 2. Create a feature branch
+
+```bash
+git checkout -b feature/your-feature
+```
+
+### 3. Make your changes
+
+### 4. Commit your changes
+
+```bash
+git add .
+git commit -m "feat: add your feature"
+```
+
+### 5. Push your branch
+
+```bash
+git push origin feature/your-feature
+```
+
+### 6. Open a Pull Request
+
+---
+
+# 🧑‍💻 Development Philosophy
+
+CafeMaster is being developed with the following principles:
+
+* **Modular architecture**
+* **Clean and maintainable code**
+* **API-first development**
+* **Security-first operations**
+* **Test-driven improvements**
+* **Scalable database architecture**
+* **AI-ready infrastructure**
+* **Mobile-ready backend**
+* **Cloud-ready deployment**
+
+---
+
+# ☕ CafeMaster
+
+### From managing a cafe → to intelligently operating one.
+
+Built for modern restaurant operations, automation, analytics, and future AI-powered management.
